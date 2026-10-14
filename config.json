@@ -190,42 +190,6 @@
         "source": "https://docs.pacifica.fi/trading-on-pacifica/trading-fees",
         "asOf": "2026-10-14"
       }
-    },
-    {
-      "name": "Hibachi",
-      "slug": "hibachi",
-      "perpsmania": "hibachi",
-      "fee": {
-        "maker": "0%",
-        "taker": "0.045%",
-        "note": "Tier 1（14 天永续量 $0）；官方表记 maker 0.000%",
-        "source": "https://docs.hibachi.xyz/hibachi-docs/trading/fees",
-        "asOf": "2026-10-14"
-      }
-    },
-    {
-      "name": "Decibel",
-      "slug": "decibel",
-      "coingecko": "decibel",
-      "fee": {
-        "maker": "0.015%",
-        "taker": "0.045%",
-        "note": "Tier 0 永续（加权 30 天量 <$1M）",
-        "source": "https://docs.decibel.trade/for-traders/fees",
-        "asOf": "2026-10-14"
-      }
-    },
-    {
-      "name": "Perpl",
-      "slug": "perpl",
-      "perpsmania": "perpl",
-      "fee": {
-        "maker": "0.0045%",
-        "taker": "0.0345%",
-        "note": "Tier 1（14 天量 <$5M），文档为 0.45 / 3.45 bps",
-        "source": "https://docs.perpl.xyz/exchange/fees",
-        "asOf": "2026-10-14"
-      }
     }
   ],
   "manual": {
