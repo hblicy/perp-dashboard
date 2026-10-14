@@ -195,9 +195,9 @@
       "hl_dex": "io",
       "url": "https://entropy.io",
       "fee": {
-        "maker": "0.030%",
-        "taker": "0.090%",
-        "note": "Hyperliquid HIP-3 费率（标准价 2 倍）；开启 Growth Mode 的品种 ×0.1（0.003%/0.009%）",
+        "maker": "0.003%",
+        "taker": "0.009%",
+        "note": "HIP-3 0.030%/0.090% × Growth Mode 0.1",
         "source": "https://docs.entropy.io/equity-perp-mechanics/fees",
         "asOf": "2026-10-14"
       }
