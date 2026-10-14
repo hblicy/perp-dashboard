@@ -1,0 +1,99 @@
+{
+  "refresh_seconds": 600,
+  "exchanges": [
+    {
+      "name": "Hyperliquid",
+      "slug": "hyperliquid",
+      "coingecko": "hyperliquid"
+    },
+    {
+      "name": "Lighter",
+      "slug": "lighter",
+      "coingecko": "lighter"
+    },
+    {
+      "name": "Lighter (Robinhood Chain)",
+      "slug": "lighter-robinhood-perps",
+      "coingecko": "robinhood-chain-lighter-futures"
+    },
+    {
+      "name": "Arcus",
+      "slug": "arcus",
+      "coingecko": "arcus-futures"
+    },
+    {
+      "name": "PopDEX",
+      "slug": "popdex"
+    },
+    {
+      "name": "StandX",
+      "slug": "standx-perps",
+      "coingecko": "standx"
+    },
+    {
+      "name": "Nado (Ink)",
+      "slug": "nado",
+      "coingecko": "nado"
+    },
+    {
+      "name": "BULK",
+      "slug": "bulk",
+      "coingecko": "bulk"
+    },
+    {
+      "name": "RISEx",
+      "slug": "risex",
+      "coingecko": "risex"
+    },
+    {
+      "name": "Variational",
+      "slug": "variational",
+      "coingecko": "variational-omni"
+    },
+    {
+      "name": "Ostium",
+      "slug": "ostium"
+    },
+    {
+      "name": "N1 (01 Exchange)",
+      "slug": "01-exchange"
+    },
+    {
+      "name": "QFEX",
+      "slug": "qfex",
+      "coingecko": "qfex"
+    },
+    {
+      "name": "TxFlow",
+      "slug": "txflow-perps"
+    },
+    {
+      "name": "Extended",
+      "slug": "extended-perps",
+      "coingecko": "extended"
+    }
+  ],
+  "manual": {
+    "_note": "手工数据（OI/用户存款），来自 hyperleaf 页面 2026-10-08 快照；可自行添加/更新",
+    "hyperliquid": {
+      "userDeposits": 6843415120.57,
+      "oiAtSnapshot": 8078468472.95,
+      "snapshotAt": "2026-10-08"
+    },
+    "lighter": {
+      "userDeposits": 640236222.12,
+      "oiAtSnapshot": 858247648.89,
+      "snapshotAt": "2026-10-08"
+    },
+    "arcus": {
+      "userDeposits": 45892507.81,
+      "oiAtSnapshot": 76464393.57,
+      "snapshotAt": "2026-10-08"
+    },
+    "popdex": {
+      "userDeposits": 5332389.41,
+      "oiAtSnapshot": 38981550.86,
+      "snapshotAt": "2026-10-08"
+    }
+  }
+}
