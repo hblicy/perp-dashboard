@@ -5,84 +5,202 @@
       "name": "Hyperliquid",
       "slug": "hyperliquid",
       "coingecko": "hyperliquid",
-      "perpsmania": "hyperliquid"
+      "perpsmania": "hyperliquid",
+      "fee": {
+        "maker": "0.015%",
+        "taker": "0.045%",
+        "note": "基础档（14 天量 <$5M），无质押折扣",
+        "source": "https://hyperliquid.gitbook.io/hyperliquid-docs/trading/fees",
+        "asOf": "2026-10-14"
+      }
     },
     {
       "name": "Lighter",
       "slug": "lighter",
       "coingecko": "lighter",
-      "perpsmania": "lighter"
+      "perpsmania": "lighter",
+      "fee": {
+        "maker": "0%",
+        "taker": "0%",
+        "note": "Standard 账户免费；Premium 账户 0.004%/0.028%",
+        "source": "https://docs.lighter.xyz/trading/trading-fees",
+        "asOf": "2026-10-14"
+      }
     },
     {
       "name": "Lighter (Robinhood Chain)",
       "slug": "lighter-robinhood-perps",
-      "coingecko": "robinhood-chain-lighter-futures"
+      "coingecko": "robinhood-chain-lighter-futures",
+      "fee": {
+        "maker": "0%",
+        "taker": "0%",
+        "note": "Standard 账户免费（Lighter 官方文档）；Robinhood 新闻稿亦称零手续费。注意：Robinhood Chain 版限制中国等 18 个地区",
+        "source": "https://docs.lighter.xyz/trading/trading-fees",
+        "asOf": "2026-10-14"
+      }
     },
     {
       "name": "Arcus",
       "slug": "arcus",
       "coingecko": "arcus-futures",
-      "perpsmania": "arcus"
+      "perpsmania": "arcus",
+      "fee": {
+        "maker": "0%",
+        "taker": "0.0225%",
+        "note": "Beta 期间优惠价（标准价 0.015%/0.045%），官方 API /v1/feetiers 实时确认",
+        "source": "https://help.arcus.xyz/faq/arcus-perps-faq/fees/what-are-the-perp-fee-tiers",
+        "asOf": "2026-10-14"
+      }
     },
     {
       "name": "PopDEX",
-      "slug": "popdex"
+      "slug": "popdex",
+      "fee": {
+        "maker": "0.010%",
+        "taker": "0.032%",
+        "note": "VIP 0（14 天量 <$3M）",
+        "source": "https://popdex.xyz/docs/product-docs/trading/fees",
+        "asOf": "2026-10-14"
+      }
     },
     {
       "name": "StandX",
       "slug": "standx-perps",
       "coingecko": "standx",
-      "perpsmania": "standx"
+      "perpsmania": "standx",
+      "fee": {
+        "maker": "0.01%",
+        "taker": "0.04%",
+        "note": "基础费率",
+        "source": "https://docs.standx.com/docs/standx-perps-solutions/trading-fee",
+        "asOf": "2026-10-14"
+      }
     },
     {
       "name": "Nado (Ink)",
       "slug": "nado",
       "coingecko": "nado",
-      "perpsmania": "nado"
+      "perpsmania": "nado",
+      "fee": {
+        "maker": "0.01%",
+        "taker": "0.035%",
+        "note": "入门档（$0 量）",
+        "source": "https://docs.nado.xyz/core/fees-and-rebates",
+        "asOf": "2026-10-14"
+      }
     },
     {
       "name": "BULK",
       "slug": "bulk",
       "coingecko": "bulk",
-      "perpsmania": "bulk"
+      "perpsmania": "bulk",
+      "fee": {
+        "maker": "0%",
+        "taker": "0.035%",
+        "note": "Phase 1 费率（官方 API /feeState 显示当前生效）；Phase 2 起 maker 0.02%",
+        "source": "https://docs.bulk.trade/bulk-exchange/fees",
+        "asOf": "2026-10-14"
+      }
     },
     {
       "name": "RISEx",
       "slug": "risex",
       "coingecko": "risex",
-      "perpsmania": "risex"
+      "perpsmania": "risex",
+      "fee": {
+        "maker": "0.01%",
+        "taker": "0.03%",
+        "note": "Tier 1（14 天量 $0 起）",
+        "source": "https://docs.risechain.com/docs/risex/trading/fees",
+        "asOf": "2026-10-14"
+      }
     },
     {
       "name": "Variational",
       "slug": "variational",
       "coingecko": "variational-omni",
-      "perpsmania": "variational"
+      "perpsmania": "variational",
+      "fee": {
+        "maker": "0%",
+        "taker": "0%",
+        "note": "Omni 无交易手续费，靠点差盈利",
+        "source": "https://docs.variational.io/omni/trading/fees",
+        "asOf": "2026-10-14"
+      }
     },
     {
       "name": "Ostium",
       "slug": "ostium",
-      "perpsmania": "ostium"
+      "perpsmania": "ostium",
+      "fee": {
+        "maker": "0.01–0.06%",
+        "taker": "0.01–0.06%",
+        "note": "Ostium 只收开仓费（按品种 1–6 bps：指数 1–3、股票/ETF 3、外汇/商品 2–5、加密 6），另有预言机费和隔夜费；数据来自官方文档的品种费率表",
+        "source": "https://docs.ostium.com/traders/reference/fees",
+        "asOf": "2026-10-14"
+      }
     },
     {
       "name": "N1 (01 Exchange)",
       "slug": "01-exchange",
-      "perpsmania": "zeroone"
+      "perpsmania": "zeroone",
+      "fee": {
+        "maker": "0.01%",
+        "taker": "0.035%",
+        "note": "T1 CLOB 费率（2026-08-15 主网配置）",
+        "source": "https://docs.n1.xyz/trading/orders/fees",
+        "asOf": "2026-10-14"
+      }
     },
     {
       "name": "QFEX",
       "slug": "qfex",
       "coingecko": "qfex",
-      "perpsmania": "qfex"
+      "perpsmania": "qfex",
+      "fee": {
+        "maker": "0.02%",
+        "taker": "0.05%",
+        "note": "Tier 5 指数/商品费率；个股 0.05%/0.10%。已入金老用户在指定品种享终身最低档（maker 0，taker 个股 0.015%/指数 0.006%）",
+        "source": "https://docs.qfex.com/qfex/fees",
+        "asOf": "2026-10-14"
+      }
     },
     {
       "name": "TxFlow",
-      "slug": "txflow-perps"
+      "slug": "txflow-perps",
+      "fee": {
+        "maker": "0.015%",
+        "taker": "0.045%",
+        "note": "VIP 0（14 天量 <$5M），开仓和平仓各收一次",
+        "source": "https://docs.txflow.com/perp/trading-fees",
+        "asOf": "2026-10-14"
+      }
     },
     {
       "name": "Extended",
       "slug": "extended-perps",
       "coingecko": "extended",
-      "perpsmania": "extended"
+      "perpsmania": "extended",
+      "fee": {
+        "maker": "0%",
+        "taker": "0.025%",
+        "note": "统一费率；RWA 品种 0%/0.01%",
+        "source": "https://docs.extended.exchange/extended-resources/trading/trading-fees-and-rebates",
+        "asOf": "2026-10-14"
+      }
+    },
+    {
+      "name": "Entropy",
+      "slug": "entropy.io",
+      "hl_dex": "io",
+      "url": "https://entropy.io",
+      "fee": {
+        "maker": "0.030%",
+        "taker": "0.090%",
+        "note": "Hyperliquid HIP-3 费率（标准价 2 倍）；开启 Growth Mode 的品种 ×0.1（0.003%/0.009%）",
+        "source": "https://docs.entropy.io/equity-perp-mechanics/fees",
+        "asOf": "2026-10-14"
+      }
     }
   ],
   "manual": {

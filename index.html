@@ -6,15 +6,16 @@ th{color:#a1a1aa;cursor:pointer;user-select:none;background:#111113}th:first-chi
 tr:hover td{background:#141417}.pos{color:#4ade80}.neg{color:#f87171}.muted{color:#71717a;font-size:12px}
 </style></head><body><h1>Perp DEX 数据看板</h1>
 <div class="muted" id="meta">加载中…</div><br><table><thead><tr id="hd"></tr></thead><tbody id="bd"></tbody></table>
-<p class="muted">数据来源：DefiLlama 公共 API（OI、手续费、收入、TVL）；交易量优先来自 perpsmania（各交易所原生 API 汇总），缺失时用 CoinGecko（7D 为每日滚动 24h 量之和，近似；服务器拿不到时由浏览器补齐）；OI/用户存款为手工快照（见 config.json manual）。— 表示无数据。点表头排序。</p>
+<p class="muted">数据来源：DefiLlama 公共 API（OI、手续费、收入、TVL）；交易量优先来自 perpsmania（各交易所原生 API 汇总），缺失时用 CoinGecko（7D 为每日滚动 24h 量之和，近似；服务器拿不到时由浏览器补齐）；OI/用户存款为手工快照（见 config.json manual）。手续费为基础档费率，悬停看说明、点击打开官方来源。Entropy 24H 交易量来自 Hyperliquid 官方 API。— 表示无数据。点表头排序。</p>
 <script>
 const SNAP=null;
-const COLS=[["name","交易所","s"],["oi","持仓量 OI","$"],["oiChange7d","OI 7日变化","%"],["volume24h","24H 交易量","$"],["volume7d","7D 交易量","$"],["fees24h","24H 手续费","$"],["fees7d","7D 手续费","$"],["revenue24h","24H 收入","$"],["tvl","TVL","$"],["oiToDeposits","OI/用户存款","x"]];
+const COLS=[["name","交易所","s"],["oi","持仓量 OI","$"],["oiChange7d","OI 7日变化","%"],["volume24h","24H 交易量","$"],["volume7d","7D 交易量","$"],["fees24h","24H 手续费","$"],["fees7d","7D 手续费","$"],["revenue24h","24H 收入","$"],["tvl","TVL","$"],["oiToDeposits","OI/用户存款","x"],["fee","手续费 (Maker/Taker)","fee"]];
 let rows=[],sk="oi",sd=-1;
 const f$=v=>{if(v==null)return"—";const a=Math.abs(v),n=(x,d)=>x.toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});return a>=1e9?"$"+n(v/1e9,2)+"B":a>=1e6?"$"+n(v/1e6,1)+"M":a>=1e3?"$"+n(v/1e3,1)+"k":"$"+n(v,0)};
-function cell(c,r){const v=r[c[0]];if(c[2]=="s")return v;if(v==null)return"—";if(c[2]=="%")return`<span class="${v>=0?"pos":"neg"}">${v>=0?"+":""}${(v*100).toFixed(1)}%</span>`;if(c[2]=="x")return v.toFixed(2)+"x"+(r.depositsAt?` <span class=muted>(${r.depositsAt})</span>`:"");return f$(v)}
+const esc=x=>String(x).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+function cell(c,r){const v=r[c[0]];if(c[2]=="s")return v;if(c[2]=="fee"){if(!v||!v.maker)return"—";return `<a href="${esc(v.source)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline dotted" title="${esc(v.note+"\n来源："+v.source+"\n截至："+v.asOf)}">${esc(v.maker)} / ${esc(v.taker)}</a>`}if(v==null)return"—";if(c[2]=="%")return`<span class="${v>=0?"pos":"neg"}">${v>=0?"+":""}${(v*100).toFixed(1)}%</span>`;if(c[2]=="x")return v.toFixed(2)+"x"+(r.depositsAt?` <span class=muted>(${r.depositsAt})</span>`:"");return f$(v)}
 function draw(){document.getElementById("hd").innerHTML=COLS.map(c=>`<th data-k="${c[0]}">${c[1]}${sk==c[0]?(sd>0?" ▲":" ▼"):""}</th>`).join("");
-const s=[...rows].sort((a,b)=>{const x=a[sk],y=b[sk];if(x==null)return 1;if(y==null)return-1;return(typeof x=="string"?x.localeCompare(y):x-y)*sd});
+const V=(r,k)=>k=="fee"?(r.fee&&isFinite(parseFloat(r.fee.taker))?parseFloat(r.fee.taker):null):r[k];const s=[...rows].sort((a,b)=>{const x=V(a,sk),y=V(b,sk);if(x==null)return 1;if(y==null)return-1;return(typeof x=="string"?x.localeCompare(y):x-y)*sd});
 document.getElementById("bd").innerHTML=s.map(r=>"<tr>"+COLS.map(c=>`<td>${cell(c,r)}</td>`).join("")+"</tr>").join("");
 document.querySelectorAll("th").forEach(t=>t.onclick=()=>{const k=t.dataset.k;sd=sk==k?-sd:-1;sk=k;draw()})}
 // 服务器拿不到 CoinGecko 交易量时，浏览器用自己的 IP 补上；7D 逐个加载，并缓存在 localStorage（1 小时）
@@ -35,7 +36,13 @@ async function fillVol(){if(filling)return;filling=true;try{
    if(v!=null)SS(k,v);await new Promise(z=>setTimeout(z,2500))}
   if(v!=null){r.volume7d=v*btc;draw()}}
 }finally{filling=false}}
-function show(d){rows=d.rows;document.getElementById("meta").textContent="更新时间："+new Date(d.fetchedAt).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai"})+"（北京时间）"+(SNAP?"｜静态快照":"｜服务器缓存 10 分钟，页面每 10 分钟自动刷新");draw();fillVol()}
+let CFGX=null;
+async function cfgx(){if(!CFGX){try{CFGX=await (await fetch("/config.json",{cache:"no-store"})).json()}catch(e){CFGX={exchanges:[]}}}return CFGX}
+async function hip3(){for(const r of rows){if(!r.hl_dex||r.volume24h!=null)continue;try{
+ const x=await (await fetch("https://api.hyperliquid.xyz/info",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"metaAndAssetCtxs",dex:r.hl_dex})})).json();
+ const v=x[1].reduce((a,c)=>a+(+c.dayNtlVlm||0),0);if(isFinite(v)&&v>0){r.volume24h=v;r.volSource="hyperliquid";draw()}}catch(e){}}}
+async function enrich(){const c=await cfgx();for(const r of rows){const e=(c.exchanges||[]).find(x=>x.slug==r.slug);if(e){if(e.fee)r.fee=e.fee;if(e.hl_dex)r.hl_dex=e.hl_dex}}draw();hip3()}
+function show(d){rows=d.rows;document.getElementById("meta").textContent="更新时间："+new Date(d.fetchedAt).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai"})+"（北京时间）"+(SNAP?"｜静态快照":"｜服务器缓存 10 分钟，页面每 10 分钟自动刷新");draw();fillVol();enrich()}
 async function load(){try{show(await (await fetch("/api/data",{cache:"no-store"})).json())}catch(e){document.getElementById("meta").textContent="加载失败："+e}}
 if(SNAP)show(SNAP);else{load();setInterval(load,600000)}
 </script></body></html>
