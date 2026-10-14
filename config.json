@@ -4,12 +4,14 @@
     {
       "name": "Hyperliquid",
       "slug": "hyperliquid",
-      "coingecko": "hyperliquid"
+      "coingecko": "hyperliquid",
+      "perpsmania": "hyperliquid"
     },
     {
       "name": "Lighter",
       "slug": "lighter",
-      "coingecko": "lighter"
+      "coingecko": "lighter",
+      "perpsmania": "lighter"
     },
     {
       "name": "Lighter (Robinhood Chain)",
@@ -19,7 +21,8 @@
     {
       "name": "Arcus",
       "slug": "arcus",
-      "coingecko": "arcus-futures"
+      "coingecko": "arcus-futures",
+      "perpsmania": "arcus"
     },
     {
       "name": "PopDEX",
@@ -28,40 +31,48 @@
     {
       "name": "StandX",
       "slug": "standx-perps",
-      "coingecko": "standx"
+      "coingecko": "standx",
+      "perpsmania": "standx"
     },
     {
       "name": "Nado (Ink)",
       "slug": "nado",
-      "coingecko": "nado"
+      "coingecko": "nado",
+      "perpsmania": "nado"
     },
     {
       "name": "BULK",
       "slug": "bulk",
-      "coingecko": "bulk"
+      "coingecko": "bulk",
+      "perpsmania": "bulk"
     },
     {
       "name": "RISEx",
       "slug": "risex",
-      "coingecko": "risex"
+      "coingecko": "risex",
+      "perpsmania": "risex"
     },
     {
       "name": "Variational",
       "slug": "variational",
-      "coingecko": "variational-omni"
+      "coingecko": "variational-omni",
+      "perpsmania": "variational"
     },
     {
       "name": "Ostium",
-      "slug": "ostium"
+      "slug": "ostium",
+      "perpsmania": "ostium"
     },
     {
       "name": "N1 (01 Exchange)",
-      "slug": "01-exchange"
+      "slug": "01-exchange",
+      "perpsmania": "zeroone"
     },
     {
       "name": "QFEX",
       "slug": "qfex",
-      "coingecko": "qfex"
+      "coingecko": "qfex",
+      "perpsmania": "qfex"
     },
     {
       "name": "TxFlow",
@@ -70,7 +81,8 @@
     {
       "name": "Extended",
       "slug": "extended-perps",
-      "coingecko": "extended"
+      "coingecko": "extended",
+      "perpsmania": "extended"
     }
   ],
   "manual": {
@@ -95,5 +107,6 @@
       "oiAtSnapshot": 38981550.86,
       "snapshotAt": "2026-10-08"
     }
-  }
+  },
+  "_volume_note": "交易量优先用 perpsmania（各交易所原生 API 汇总，非官方接口），缺失时用 CoinGecko"
 }

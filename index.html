@@ -6,7 +6,7 @@ th{color:#a1a1aa;cursor:pointer;user-select:none;background:#111113}th:first-chi
 tr:hover td{background:#141417}.pos{color:#4ade80}.neg{color:#f87171}.muted{color:#71717a;font-size:12px}
 </style></head><body><h1>Perp DEX 数据看板</h1>
 <div class="muted" id="meta">加载中…</div><br><table><thead><tr id="hd"></tr></thead><tbody id="bd"></tbody></table>
-<p class="muted">数据来源：DefiLlama 公共 API（OI、手续费、收入、TVL）；交易量来自 CoinGecko（7D 为每日滚动 24h 量之和，近似）；OI/用户存款为手工快照（见 config.json manual）。— 表示无数据。点表头排序。</p>
+<p class="muted">数据来源：DefiLlama 公共 API（OI、手续费、收入、TVL）；交易量优先来自 perpsmania（各交易所原生 API 汇总），缺失时用 CoinGecko（7D 为每日滚动 24h 量之和，近似；服务器拿不到时由浏览器补齐）；OI/用户存款为手工快照（见 config.json manual）。— 表示无数据。点表头排序。</p>
 <script>
 const SNAP=null;
 const COLS=[["name","交易所","s"],["oi","持仓量 OI","$"],["oiChange7d","OI 7日变化","%"],["volume24h","24H 交易量","$"],["volume7d","7D 交易量","$"],["fees24h","24H 手续费","$"],["fees7d","7D 手续费","$"],["revenue24h","24H 收入","$"],["tvl","TVL","$"],["oiToDeposits","OI/用户存款","x"]];
@@ -17,7 +17,25 @@ function draw(){document.getElementById("hd").innerHTML=COLS.map(c=>`<th data-k=
 const s=[...rows].sort((a,b)=>{const x=a[sk],y=b[sk];if(x==null)return 1;if(y==null)return-1;return(typeof x=="string"?x.localeCompare(y):x-y)*sd});
 document.getElementById("bd").innerHTML=s.map(r=>"<tr>"+COLS.map(c=>`<td>${cell(c,r)}</td>`).join("")+"</tr>").join("");
 document.querySelectorAll("th").forEach(t=>t.onclick=()=>{const k=t.dataset.k;sd=sk==k?-sd:-1;sk=k;draw()})}
-function show(d){rows=d.rows;document.getElementById("meta").textContent="更新时间："+new Date(d.fetchedAt).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai"})+"（北京时间）"+(SNAP?"｜静态快照":"｜服务器缓存 10 分钟，页面每 10 分钟自动刷新");draw()}
+// 服务器拿不到 CoinGecko 交易量时，浏览器用自己的 IP 补上；7D 逐个加载，并缓存在 localStorage（1 小时）
+const CGID0={"hyperliquid": "hyperliquid", "lighter": "lighter", "lighter-robinhood-perps": "robinhood-chain-lighter-futures", "arcus": "arcus-futures", "standx-perps": "standx", "nado": "nado", "bulk": "bulk", "risex": "risex", "variational": "variational-omni", "qfex": "qfex", "extended-perps": "extended"},G="https://api.coingecko.com/api/v3";
+const LS=k=>{try{const o=JSON.parse(localStorage.getItem(k));return o&&Date.now()-o.t<36e5?o.v:undefined}catch(e){}},SS=(k,v)=>{try{localStorage.setItem(k,JSON.stringify({t:Date.now(),v}))}catch(e){}};
+const CGID=new Proxy({},{get:(_,s)=>{const r=rows.find(x=>x.slug==s);return r&&r.coingecko||CGID0[s]}});const GJ=async u=>{try{const r=await fetch(u);return r.ok?await r.json():null}catch(e){return null}};
+let filling=false;
+async function fillVol(){if(filling)return;filling=true;try{
+ const need=rows.filter(r=>CGID[r.slug]&&(r.volume24h==null||r.volume7d==null));if(!need.length)return;
+ const btc=await (async()=>{let v=LS("cg_btc");if(v===undefined){const p=await GJ(G+"/simple/price?ids=bitcoin&vs_currencies=usd");v=p&&p.bitcoin&&p.bitcoin.usd||null;if(v)SS("cg_btc",v)}return v})();if(!btc)return;
+ if(need.some(r=>r.volume24h==null)){let l=LS("cg_list");if(l===undefined){const d=await GJ(G+"/derivatives/exchanges?per_page=300");if(d){l=Object.fromEntries(d.map(e=>[e.id,+e.trade_volume_24h_btc]));SS("cg_list",l)}}
+  if(l)for(const r of need)if(r.volume24h==null){const v=l[CGID[r.slug]];if(isFinite(v))r.volume24h=v*btc}draw()}
+ for(const r of need){if(r.volume7d!=null)continue;const k="cg7_"+CGID[r.slug];let v=LS(k);
+  if(v===undefined){const c=await GJ(`${G}/exchanges/${CGID[r.slug]}/volume_chart?days=7`);v=null;
+   if(Array.isArray(c)&&c.length){const P=c.map(([t,x])=>[t,+x]).sort((a,b)=>a[0]-b[0]),last=P[P.length-1][0],pk=[];
+    for(let i=0;i<7;i++){const t=last-i*864e5,b=P.reduce((a,x)=>Math.abs(x[0]-t)<Math.abs(a[0]-t)?x:a);if(Math.abs(b[0]-t)<=72e5)pk.push(b[1])}
+    if(pk.length==7)v=pk.reduce((a,b)=>a+b,0)}
+   if(v!=null)SS(k,v);await new Promise(z=>setTimeout(z,2500))}
+  if(v!=null){r.volume7d=v*btc;draw()}}
+}finally{filling=false}}
+function show(d){rows=d.rows;document.getElementById("meta").textContent="更新时间："+new Date(d.fetchedAt).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai"})+"（北京时间）"+(SNAP?"｜静态快照":"｜服务器缓存 10 分钟，页面每 10 分钟自动刷新");draw();fillVol()}
 async function load(){try{show(await (await fetch("/api/data",{cache:"no-store"})).json())}catch(e){document.getElementById("meta").textContent="加载失败："+e}}
 if(SNAP)show(SNAP);else{load();setInterval(load,600000)}
 </script></body></html>
