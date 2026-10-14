@@ -129,30 +129,6 @@
       }
     },
     {
-      "name": "Ostium",
-      "slug": "ostium",
-      "perpsmania": "ostium",
-      "fee": {
-        "maker": "0.01–0.06%",
-        "taker": "0.01–0.06%",
-        "note": "Ostium 只收开仓费（按品种 1–6 bps：指数 1–3、股票/ETF 3、外汇/商品 2–5、加密 6），另有预言机费和隔夜费；数据来自官方文档的品种费率表",
-        "source": "https://docs.ostium.com/traders/reference/fees",
-        "asOf": "2026-10-14"
-      }
-    },
-    {
-      "name": "N1 (01 Exchange)",
-      "slug": "01-exchange",
-      "perpsmania": "zeroone",
-      "fee": {
-        "maker": "0.01%",
-        "taker": "0.035%",
-        "note": "T1 CLOB 费率（2026-08-15 主网配置）",
-        "source": "https://docs.n1.xyz/trading/orders/fees",
-        "asOf": "2026-10-14"
-      }
-    },
-    {
       "name": "QFEX",
       "slug": "qfex",
       "coingecko": "qfex",
@@ -199,6 +175,55 @@
         "taker": "0.009%",
         "note": "HIP-3 0.030%/0.090% × Growth Mode 0.1",
         "source": "https://docs.entropy.io/equity-perp-mechanics/fees",
+        "asOf": "2026-10-14"
+      }
+    },
+    {
+      "name": "Pacifica",
+      "slug": "pacifica",
+      "coingecko": "pacifica",
+      "perpsmania": "pacifica",
+      "fee": {
+        "maker": "0.015%",
+        "taker": "0.040%",
+        "note": "Tier 1（30 天滚动量 $0）",
+        "source": "https://docs.pacifica.fi/trading-on-pacifica/trading-fees",
+        "asOf": "2026-10-14"
+      }
+    },
+    {
+      "name": "Hibachi",
+      "slug": "hibachi",
+      "perpsmania": "hibachi",
+      "fee": {
+        "maker": "0%",
+        "taker": "0.045%",
+        "note": "Tier 1（14 天永续量 $0）；官方表记 maker 0.000%",
+        "source": "https://docs.hibachi.xyz/hibachi-docs/trading/fees",
+        "asOf": "2026-10-14"
+      }
+    },
+    {
+      "name": "Decibel",
+      "slug": "decibel",
+      "coingecko": "decibel",
+      "fee": {
+        "maker": "0.015%",
+        "taker": "0.045%",
+        "note": "Tier 0 永续（加权 30 天量 <$1M）",
+        "source": "https://docs.decibel.trade/for-traders/fees",
+        "asOf": "2026-10-14"
+      }
+    },
+    {
+      "name": "Perpl",
+      "slug": "perpl",
+      "perpsmania": "perpl",
+      "fee": {
+        "maker": "0.0045%",
+        "taker": "0.0345%",
+        "note": "Tier 1（14 天量 <$5M），文档为 0.45 / 3.45 bps",
+        "source": "https://docs.perpl.xyz/exchange/fees",
         "asOf": "2026-10-14"
       }
     }
