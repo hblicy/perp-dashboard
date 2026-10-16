@@ -1,5 +1,5 @@
 // TxFlow 永续成交量。官方文档未公开，这是 app.txflow.com 用的公开 info 接口，无 key。
-// 24h = Σ activeAssetCtx.dayNtlVlm（精确）。7d = 滚动 168h 的 1h K 线 v×(o+h+l+c)/4（近似）。
+// 24h = Σ activeAssetCtx.dayNtlVlm（精确）。7d = 滚动 168h 的 UTC 日 K v×(o+h+l+c)/4（近似）。
 // 最多 3 个并发。失败就返回 null，不编造数字，也不影响 /api/data。
 const INFO = "https://api.txflow.com/info";
 const CONC = 3;
@@ -78,23 +78,28 @@ async function info(body, signal, opt) {
   }
   throw new Error(last);
 }
-function notional(candles, start7, now) {
+function dayNotional(candles, start7, now) {
   if (!Array.isArray(candles)) return null;
-  const hour = 3600000;
-  const start = now - 24 * hour;
-  // The candle that contains now-24h is only partly inside the window. Weight it by that fraction.
-  const earliest = start - (start % hour);
-  const weight = (earliest + hour - start) / hour;
+  const day = 86400000;
+  const start24 = now - 24 * 3600000;
   let d7 = 0, d24 = 0;
+  const add = (bucket, t, end, n, start) => {
+    if (end <= start || t > now) return bucket;
+    // The current UTC day already contains only the volume so far, and that volume is inside the window.
+    if (end > now && t <= now) return bucket + n;
+    if (t >= start && end <= now) return bucket + n;
+    if (t < start && end > start) return bucket + n * (end - start) / day;
+    return bucket;
+  };
   for (const c of candles) {
     const t = +c.t;
-    if (!Number.isFinite(t) || t < start7 || t > now) continue;
+    if (!Number.isFinite(t)) return null;
+    const end = t + day;
     const o = +c.o, h = +c.h, l = +c.l, cl = +c.c, v = +c.v;
     if (![o, h, l, cl, v].every(Number.isFinite) || v < 0) return null;
     const n = v * (o + h + l + cl) / 4;
-    d7 += n;
-    if (t === earliest) d24 += n * weight;
-    else if (t >= start && t <= now) d24 += n;
+    d7 = add(d7, t, end, n, start7);
+    d24 = add(d24, t, end, n, start24);
   }
   return { d7, d24 };
 }
@@ -162,8 +167,8 @@ async function load(signal, mark) {
     return { coin, value: v };
   });
   const candleJobs = coins.map(coin => async () => {
-    const candles = await info({ type: "candleSnapshot", req: { coin, interval: "1h", startTime: start7, endTime: now } }, signal);
-    const v = notional(candles, start7, now);
+    const candles = await info({ type: "candleSnapshot", req: { coin, interval: "1d", startTime: now - 8 * 86400000, endTime: now } }, signal);
+    const v = dayNotional(candles, start7, now);
     if (v == null) throw new Error("bad candles");
     mark("candles", coins.length, "candle");
     return { coin, value: v.d7, day: v.d24 };
