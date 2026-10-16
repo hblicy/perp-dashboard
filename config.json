@@ -387,29 +387,6 @@
       }
     },
     {
-      "name": "Extended",
-      "slug": "extended-perps",
-      "coingecko": "extended",
-      "perpsmania": "extended",
-      "note": "已跳过",
-      "noteSources": [],
-      "costPerPoint": {
-        "display": "已跳过",
-        "samples": null,
-        "date": null,
-        "basis": null,
-        "referral": false,
-        "sources": []
-      },
-      "fee": {
-        "maker": "0%",
-        "taker": "0.025%",
-        "note": "统一费率；RWA 品种 0%/0.01%",
-        "source": "https://docs.extended.exchange/extended-resources/trading/trading-fees-and-rebates",
-        "asOf": "2026-10-14"
-      }
-    },
-    {
       "name": "Entropy",
       "slug": "entropy.io",
       "hl_dex": "io",
