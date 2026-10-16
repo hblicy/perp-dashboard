@@ -55,6 +55,9 @@ global.fetch = async (url, opts) => {
     if (body.type === "perpDexStatus") return okJson({ totalNetDeposit: 10 });
     return okJson([{ universe: [{ name: "BTC", isDelisted: false }] }, [{ openInterest: "2", markPx: "5" }]]);
   }
+  if (u.includes("popdex") && u.includes("/vaults")) return okJson({ code: "200", data: [{ vaultType: "Protocol", baseToken: "USDT", totalEquity: "1000", usdExchangeRate: "1" }] });
+  if (u.includes("popdex") && u.includes("/tickers")) return okJson({ code: "200", data: [{ category: "futures", symbol: "BTCUSDT", status: "Trading", openInterest: "2", markPrice: "5", turnover24h: "10", updatedTime: String(Date.now()) }], total: "1", limit: "100", cursor: "1" });
+  if (u.includes("popdex") && u.includes("/candles")) return okJson({ code: "500", data: null });
   if (u.includes("popdex")) return okJson({ code: "200", data: [], total: 0, limit: 100 });
   if (u.includes("simple/price")) return okJson({ bitcoin: { usd: 100 } });
   if (u.includes("coingecko.com")) return okJson([]);

@@ -53,6 +53,7 @@ function base(url) {
     const hit = base(u);
     if (hit) return hit;
     if (u.includes("perpsmania.com")) return okJson(pm);
+    if (u.includes("popdex") && u.includes("/vaults")) return okJson({ code: "200", data: [{ vaultType: "Protocol", baseToken: "USDT", totalEquity: "1000", usdExchangeRate: "1" }] });
     if (u.includes("popdex")) return okJson({ code: "200", data: [], total: 0, limit: 100 });
     if (u.includes("coingecko.com")) return okJson("no", 429);
     return okJson("missing", 404);

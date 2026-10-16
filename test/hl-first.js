@@ -41,6 +41,7 @@ global.fetch = async (url, opts) => {
   if (u.includes("/summary/fees/")) return okJson({ totalDataChart: days(50) });
   if (u.includes("/tvl/")) return okJson("333000");
   if (u.includes("perpsmania.com")) return okJson({});
+  if (u.includes("popdex") && u.includes("/vaults")) return okJson({ code: "200", data: [{ vaultType: "Protocol", baseToken: "USDT", totalEquity: "1000", usdExchangeRate: "1" }] });
   if (u.includes("popdex")) return okJson({ code: "200", data: [], total: 0, limit: 100 });
   if (u.includes("simple/price")) return okJson({ bitcoin: { usd: 100 } });
   if (u.includes("coingecko.com")) return okJson([]);
