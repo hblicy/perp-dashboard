@@ -7,7 +7,7 @@ let cooldownUntil = 0;
 function createTiming(t0) {
   const phases = { perpMeta: null, ctx: null, candles: null };
   const lat = { ctx: [], candles: [] };
-  let open = null, openAt = 0, http429 = 0, cloudflare1015 = 0, cooldownMs = 0;
+  let open = null, openAt = 0, http429 = 0, http403 = 0, cloudflare1015 = 0, cooldownMs = 0;
   const pct = (arr, p) => {
     if (!arr.length) return null;
     const s = arr.slice().sort((a, b) => a - b);
@@ -27,6 +27,7 @@ function createTiming(t0) {
     },
     noteReq(kind, ms) { if (lat[kind]) lat[kind].push(ms); },
     note429() { http429++; },
+    note403() { http403++; },
     note1015() { cloudflare1015++; },
     async pause(ms, signal) {
       const t = Date.now();
@@ -39,7 +40,7 @@ function createTiming(t0) {
         totalMs: Date.now() - t0,
         phases: { perpMeta: phases.perpMeta, ctx: phases.ctx, candles: phases.candles },
         requests: { ctx: bucket(lat.ctx), candles: bucket(lat.candles) },
-        http429, cloudflare1015, cooldownMs,
+        http429, http403, cloudflare1015, cooldownMs,
         concurrency: CONC,
         node: process.version,
         region: process.env.VERCEL_REGION || null
@@ -96,6 +97,7 @@ async function info(body, signal, opt) {
         body: JSON.stringify(body)
       }, ms, signal);
       if (timing && kind) timing.noteReq(kind, Date.now() - tReq);
+      if (timing && r.status === 403) timing.note403();
       if (!r.ok && r.text && /error code:\s*1015|Error 1015/i.test(r.text)) {
         if (timing) timing.note1015();
         throw Object.assign(new Error("HTTP " + r.status + " Cloudflare 1015"), { hard: true });
@@ -251,7 +253,10 @@ module.exports = async (req, res) => {
   const finish = (body, ok) => {
     if (sent) return;
     sent = true;
-    body.timing = timing.snapshot();
+    const snap = timing.snapshot();
+    body.timing = snap;
+    const outcome = ok ? "done" : /timeout/i.test(body.error || "") ? "timeout" : "error";
+    console.log(JSON.stringify({ tag: "txflow-timing", ...snap, outcome }));
     clearTimeout(hard);
     timers.forEach(clearTimeout);
     res.statusCode = 200;
@@ -265,9 +270,10 @@ module.exports = async (req, res) => {
     // Candles timed out after every coin's dayNtlVlm succeeded: keep that exact 24h.
     // 7d stays null, and the 5-minute cache makes the next visitor retry the candles.
     const keep24 = phase === "candles" && exact24h != null;
+    const msg = error || "timeout";
     finish({
       slug: "txflow-perps", fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0,
-      coins: knownCoins, phase, volume24h: keep24 ? exact24h : null, volume7d: null, coverage24h: null, volume7dApprox: false, error: error || "timeout"
+      coins: knownCoins, phase, volume24h: keep24 ? exact24h : null, volume7d: null, coverage24h: null, volume7dApprox: false, error: msg
     }, false);
   };
   const arm = (ms, check) => timers.push(setTimeout(() => {
