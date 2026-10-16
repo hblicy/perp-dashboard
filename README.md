@@ -1,7 +1,7 @@
 # Perp DEX 数据看板（Vercel 版）
 
 - index.html：页面，打开后读取 /api/data，再单独请求 /api/txflow，并在浏览器里补 Entropy 的 7D
-- api/data.js：服务器端函数，汇总 DefiLlama（页面用 OI、手续费；每行仍返回 tvl，供以后做存款分母）、perpsmania、CoinGecko，以及 PopDEX 官方公开行情。正常结果 Vercel CDN 缓存 10 分钟（s-maxage=600），过期后的 1 小时内先返回旧数据，同时在后台更新（stale-while-revalidate=3600）。整次请求的 44 秒截止会打断这四路。截止时 errors 写明停在哪一路、哪些交易所还挂着，以及 PopDEX 已完成的合约数。24H 已经算完而 7D 还没有时，24H 单独保留。这种不完整结果只缓存 60 秒
+- api/data.js：服务器端函数，汇总 DefiLlama（页面用 OI、手续费；每行仍返回 tvl，供以后做存款分母）、perpsmania、CoinGecko，以及 PopDEX 官方公开行情。正常结果 Vercel CDN 缓存 10 分钟（s-maxage=600），过期后的 1 小时内先返回旧数据，同时在后台更新（stale-while-revalidate=3600）。DefiLlama、perpsmania、CoinGecko、Hyperliquid 每个请求自己 15 秒超时，并和整次 44 秒截止绑在同一个 AbortSignal 上。PopDEX 仍是单次 8 秒。一个源挂起或失败只让它自己的字段空着，并在 errors 里写上这个源；已经成功的行和字段照常返回，不会整表变成空。截止时 errors 仍写明停在哪一路、哪些交易所还挂着，以及 PopDEX 已完成的合约数。24H 已经算完而 7D 还没有时，24H 单独保留。44 秒截止，或 DefiLlama、Hyperliquid、perpsmania 出现超时、5xx、429 时，只缓存 60 秒，不带 stale-while-revalidate。
 - api/txflow.js：只算 TxFlow。最多 3 个并发。24H 和 7D 都有时 CDN 缓存 1 小时，过期后的 1 小时内先返回旧数据（s-maxage=3600, stale-while-revalidate=3600）。24H 已有而 7D 为空时缓存 1 小时，不带 stale-while-revalidate（s-maxage=3600）。24H 为空的失败缓存 5 分钟（s-maxage=300），避免每个访客都把约 468 次请求打到同一出口 IP。合约列表 20 秒内拿不到就直接返回失败，不再干等到 255 秒
 - config.json：交易所列表、DefiLlama slug、CoinGecko id、手工填写的 OI/用户存款
 - vercel.json：api/data.js 最长 60 秒，api/txflow.js 最长 300 秒
