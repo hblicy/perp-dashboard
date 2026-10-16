@@ -11,7 +11,7 @@ const start = html.indexOf("const esc=");
 const end = html.indexOf("function cell(");
 assert.ok(start > 0 && end > start);
 const sandbox = { URL, globalThis: {} };
-vm.runInNewContext(html.slice(start, end) + "\nglobalThis.api={httpsUrl,linkItems,noteCell,feeLink};", sandbox);
+vm.runInNewContext(html.slice(start, end) + "\nglobalThis.api={httpsUrl,noteCell,feeLink};", sandbox);
 const api = sandbox.globalThis.api;
 
 assert.equal(api.httpsUrl("https://example.com/a"), "https://example.com/a");
@@ -22,11 +22,11 @@ assert.equal(api.httpsUrl("data:text/html,hi"), "");
 assert.equal(api.httpsUrl("//example.com"), "");
 assert.equal(api.httpsUrl("https://"), "");
 
-const bad = api.linkItems([{ label: "x", url: "javascript:alert(1)" }, { label: "y", url: "http://example.com" }, { label: "z", url: "https://example.com/z" }]);
-assert.equal(bad[0], "x");
-assert.equal(bad[1], "y");
-assert.equal(bad[2].includes('href="https://example.com/z"'), true);
-assert.equal(bad[2].includes('rel="noopener noreferrer"'), true);
+const note = api.noteCell({ note: "一句", noteSources: [{ label: "HL Points", url: "https://example.com/points" }, { label: "bad", url: "javascript:alert(1)" }] });
+assert.equal(note.includes("一句"), true);
+assert.equal(note.includes("<a "), false);
+assert.equal(note.includes("https://"), false);
+assert.equal(note.includes("HL Points"), false);
 
 const httpFee = api.feeLink({ maker: "0%", taker: "0.01%", note: "n", source: "http://example.com", asOf: "2026-10-16" });
 assert.equal(httpFee.includes("<a "), false);
@@ -43,13 +43,15 @@ assert.equal(risex.note.includes("呸"), false);
 assert.equal(risex.note.includes("呐"), false);
 assert.equal(risex.costPerPoint, undefined);
 
-const bulk = by("bulk").noteSources.map(s => s.url);
-assert.equal(bulk.includes("https://x.com/bulktrade/status/2057773117012062353"), true);
-assert.equal(bulk.includes("https://x.com/bulktrade/status/2108905678181912679"), true);
-assert.equal(bulk.includes("https://mainnet-api1.bulk.trade/api/v1/feeState"), true);
+assert.equal(by("bulk").note, "未发币，Aura 积分");
+assert.equal(by("bulk").noteSources, undefined);
+assert.equal(cfg.exchanges.some(e => e.noteSources), false);
+assert.equal(by("bulk").fee.source, "https://docs.bulk.trade/bulk-exchange/fees");
 
 assert.equal(html.includes('function canSortKey(k){return k!=="note"}'), true);
 assert.equal(html.includes("costPerPoint"), false);
+assert.equal(html.includes("noteSources"), false);
+assert.equal(html.includes("notesrc"), false);
 assertClean(html);
 assertClean(JSON.stringify(cfg));
 

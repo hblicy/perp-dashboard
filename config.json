@@ -8,16 +8,6 @@
       "coingecko": "hyperliquid",
       "perpsmania": "hyperliquid",
       "note": "已发币 HYPE，积分已结束",
-      "noteSources": [
-        {
-          "label": "HL Points",
-          "url": "https://hyperliquid.gitbook.io/hyperliquid-docs/points"
-        },
-        {
-          "label": "HL Staking",
-          "url": "https://hyperliquid.gitbook.io/hyperliquid-docs/hypercore/staking"
-        }
-      ],
       "fee": {
         "maker": "0.015%",
         "taker": "0.045%",
@@ -34,20 +24,6 @@
       "coingecko": "lighter",
       "perpsmania": "lighter",
       "note": "已发币 LIT，主站 S2 已结束",
-      "noteSources": [
-        {
-          "label": "Market Makers",
-          "url": "https://docs.lighter.xyz/points-program/market-makers"
-        },
-        {
-          "label": "LIT Utility",
-          "url": "https://docs.lighter.xyz/about-lighter/lit-utility"
-        },
-        {
-          "label": "Trading Fees",
-          "url": "https://docs.lighter.xyz/trading/trading-fees"
-        }
-      ],
       "fee": {
         "maker": "0%",
         "taker": "0%",
@@ -62,20 +38,6 @@
       "slug": "lighter-robinhood-perps",
       "coingecko": "robinhood-chain-lighter-futures",
       "note": "积分每周五发，LIT 池 1100 万",
-      "noteSources": [
-        {
-          "label": "Robinhood 新闻稿",
-          "url": "https://robinhood.com/us/en/newsroom/robinhood-accelerates-global-expansion-robinhood-chain-mainnet-stock-tokens-agentic-trading/"
-        },
-        {
-          "label": "RH 积分文档",
-          "url": "https://docs.lighter.xyz/points-program/lighter-on-robinhood-chain-points"
-        },
-        {
-          "label": "Trading Fees",
-          "url": "https://docs.lighter.xyz/trading/trading-fees"
-        }
-      ],
       "fee": {
         "maker": "0%",
         "taker": "0%",
@@ -90,12 +52,6 @@
       "coingecko": "arcus-futures",
       "perpsmania": "arcus",
       "note": "S1 积分，美东周三发 25 万",
-      "noteSources": [
-        {
-          "label": "Arcus Points",
-          "url": "https://arcus.xyz/blog/introducing-arcus-points"
-        }
-      ],
       "fee": {
         "maker": "0%",
         "taker": "0.0225%",
@@ -108,20 +64,6 @@
       "name": "PopDEX",
       "slug": "popdex",
       "note": "未公布积分，现发 USDT 现金",
-      "noteSources": [
-        {
-          "label": "Open Beta",
-          "url": "https://x.com/popdex_/status/2109978205641986400"
-        },
-        {
-          "label": "MegaPop",
-          "url": "https://x.com/popdex_/status/2110687142318064021"
-        },
-        {
-          "label": "第5轮USDT",
-          "url": "https://x.com/popdex_/status/2107420775062114508"
-        }
-      ],
       "fee": {
         "maker": "0.010%",
         "taker": "0.032%",
@@ -150,36 +92,6 @@
       "coingecko": "bulk",
       "perpsmania": "bulk",
       "note": "未发币，Aura 积分",
-      "noteSources": [
-        {
-          "label": "@kdotcrypto 5/22",
-          "url": "https://x.com/kdotcrypto/status/2057770145561694238"
-        },
-        {
-          "label": "@kdotcrypto 9/25",
-          "url": "https://x.com/kdotcrypto/status/2103331228934095232"
-        },
-        {
-          "label": "@bulktrade 联赛",
-          "url": "https://x.com/bulktrade/status/2108905680669147311"
-        },
-        {
-          "label": "@bulktrade 5/22 调侃式引用",
-          "url": "https://x.com/bulktrade/status/2057773117012062353"
-        },
-        {
-          "label": "@bulktrade 10/10 联赛奖池 12.5% 净手续费",
-          "url": "https://x.com/bulktrade/status/2108905678181912679"
-        },
-        {
-          "label": "BULK /feeState 公开接口",
-          "url": "https://mainnet-api1.bulk.trade/api/v1/feeState"
-        },
-        {
-          "label": "BULK Fees",
-          "url": "https://docs.bulk.trade/bulk-exchange/fees"
-        }
-      ],
       "fee": {
         "maker": "0%",
         "taker": "0.035%",
@@ -195,16 +107,6 @@
       "coingecko": "risex",
       "perpsmania": "risex",
       "note": "未发币，S1 每周 20 万分",
-      "noteSources": [
-        {
-          "label": "Points",
-          "url": "https://docs.risechain.com/docs/risex/rewards/points"
-        },
-        {
-          "label": "Impact Pool",
-          "url": "https://docs.risechain.com/docs/risex/rewards/impact-pool"
-        }
-      ],
       "fee": {
         "maker": "0.01%",
         "taker": "0.03%",
@@ -235,12 +137,6 @@
       "coingecko": "qfex",
       "perpsmania": "qfex",
       "note": "Season 0 规则未公布",
-      "noteSources": [
-        {
-          "label": "@annanay 10/7",
-          "url": "https://x.com/annanay/status/2107780122258366667"
-        }
-      ],
       "fee": {
         "maker": "0.02%",
         "taker": "0.05%",
@@ -253,12 +149,6 @@
       "name": "TxFlow",
       "slug": "txflow-perps",
       "note": "S1 周 125 万分，10/20 首发",
-      "noteSources": [
-        {
-          "label": "How Points Work",
-          "url": "https://docs.txflow.com/points/how-points-work"
-        }
-      ],
       "fee": {
         "maker": "0.015%",
         "taker": "0.045%",
@@ -273,12 +163,6 @@
       "hl_dex": "io",
       "url": "https://entropy.io",
       "note": "无积分计划，仅返佣",
-      "noteSources": [
-        {
-          "label": "Entropy Docs",
-          "url": "https://docs.entropy.io"
-        }
-      ],
       "fee": {
         "maker": "0.003%",
         "taker": "0.009%",
@@ -312,36 +196,6 @@
       "coingecko": "ondo-perps",
       "perpsmania": "ondo",
       "note": "周 500 万分，兑换未公布",
-      "noteSources": [
-        {
-          "label": "@OndoPerps 7/23 Ondo Points 上线",
-          "url": "https://x.com/OndoPerps/status/2080110863436894431"
-        },
-        {
-          "label": "@OndoFoundation 7/23",
-          "url": "https://x.com/OndoFoundation/status/2080110707388150043"
-        },
-        {
-          "label": "@OndoPerps 8/25 USDC 计划延长 6 周",
-          "url": "https://x.com/OndoPerps/status/2092306853036224919"
-        },
-        {
-          "label": "@OndoPerps 9/30（北京时间 10/1 02:38）最近一次官方提及周 $175K USDC + 500 万分",
-          "url": "https://x.com/OndoPerps/status/2105366773008634272"
-        },
-        {
-          "label": "Ondo Foundation 博客：4/1 前积分兑 USDC",
-          "url": "https://blog.ondo.foundation/ondo-points-rewards-are-now-available-to-claim/"
-        },
-        {
-          "label": "Ondo Perps 文档 Fees",
-          "url": "https://docs.ondoperps.xyz/fees"
-        },
-        {
-          "label": "Terms of Use 第 27 条",
-          "url": "https://ondoperps.xyz/legal/terms-of-use"
-        }
-      ],
       "fee": {
         "maker": "0.01%",
         "taker": "0.025%",

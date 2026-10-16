@@ -23,15 +23,7 @@ assert.equal(ondo.perpsmania, "ondo");
 assert.equal(ondo.llamaSlug, undefined);
 assert.equal(ondo.note, "周 500 万分，兑换未公布");
 assert.equal(ondo.verification, undefined);
-assert.deepEqual(ondo.noteSources.map(s => [s.label, s.url]), [
-  ["@OndoPerps 7/23 Ondo Points 上线", "https://x.com/OndoPerps/status/2080110863436894431"],
-  ["@OndoFoundation 7/23", "https://x.com/OndoFoundation/status/2080110707388150043"],
-  ["@OndoPerps 8/25 USDC 计划延长 6 周", "https://x.com/OndoPerps/status/2092306853036224919"],
-  ["@OndoPerps 9/30（北京时间 10/1 02:38）最近一次官方提及周 $175K USDC + 500 万分", "https://x.com/OndoPerps/status/2105366773008634272"],
-  ["Ondo Foundation 博客：4/1 前积分兑 USDC", "https://blog.ondo.foundation/ondo-points-rewards-are-now-available-to-claim/"],
-  ["Ondo Perps 文档 Fees", "https://docs.ondoperps.xyz/fees"],
-  ["Terms of Use 第 27 条", "https://ondoperps.xyz/legal/terms-of-use"]
-]);
+assert.equal(ondo.noteSources, undefined);
 assert.equal(ondo.costPerPoint, undefined);
 assert.equal(ondo.fee.maker, "0.01%");
 assert.equal(ondo.fee.taker, "0.025%");
@@ -67,8 +59,8 @@ const note = api.noteCell(ondo);
 assert.equal(note.includes("周 500 万分，兑换未公布"), true);
 assert.equal(note.includes("部分核实"), false);
 assert.equal(note.includes("未见独立代币"), false);
-assert.equal(note.includes('href="https://x.com/OndoPerps/status/2080110863436894431"'), true);
-assert.equal(note.includes('rel="noopener noreferrer"'), true);
+assert.equal(note.includes("<a "), false);
+assert.equal(note.includes("https://"), false);
 
 const dep = api.depCell({ slug: "ondo-perps", depositsDisplay: "missing", depositsReason: "DefiLlama TVL 为空，官方存款接口需要登录", oiBasis: 94641560, oiToDeposits: 1.2, userDeposits: 5 });
 assert.equal(dep.includes(">缺失<"), true);
