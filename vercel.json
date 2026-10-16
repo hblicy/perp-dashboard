@@ -1,1 +1,1 @@
-{ "functions": { "api/data.js": { "maxDuration": 60 } } }
+{ "functions": { "api/data.js": { "maxDuration": 60 }, "api/txflow.js": { "maxDuration": 300 } } }

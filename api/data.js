@@ -4,6 +4,24 @@ const L = "https://api.llama.fi", G = "https://api.coingecko.com/api/v3";
 const Q = "excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true";
 const N = x => (typeof x === "number" && isFinite(x) ? x : null);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sleepAbort = (ms, signal) => new Promise((resolve, reject) => {
+  if (signal && signal.aborted) { reject(new Error("aborted")); return; }
+  const t = setTimeout(resolve, ms);
+  if (!signal) return;
+  signal.addEventListener("abort", () => { clearTimeout(t); reject(new Error("aborted")); }, { once: true });
+});
+function anySignal(list) {
+  const signals = list.filter(Boolean);
+  if (!signals.length) return undefined;
+  if (signals.length === 1) return signals[0];
+  if (typeof AbortSignal.any === "function") return AbortSignal.any(signals);
+  const ac = new AbortController();
+  for (const s of signals) {
+    if (s.aborted) { ac.abort(); break; }
+    s.addEventListener("abort", () => ac.abort(), { once: true });
+  }
+  return ac.signal;
+}
 let ERR = [];
 async function J(u, tries = 2, tag) {
   let last = "";
@@ -62,11 +80,113 @@ async function vols(rows) {
     }));
   }
 }
+// PopDEX 官方公开行情（无 key）。浏览器无 CORS，只能在这里取。
+// 24h = Σ turnover24h；7d = 滚动 168 小时 1H K 线的报价成交额（index[6]），不是估算。
+async function popGet(path, signal) {
+  const url = "https://api.popdex.xyz" + path;
+  let last = "error";
+  for (let i = 0; i < 2; i++) {
+    if (signal && signal.aborted) throw new Error("aborted");
+    try {
+      const r = await fetch(url, {
+        headers: { "User-Agent": "perp-dashboard", "Accept": "application/json" },
+        signal: anySignal([AbortSignal.timeout(8000), signal])
+      });
+      if (r.status === 429) {
+        last = "HTTP 429";
+        await sleepAbort(Math.min(parseFloat(r.headers.get("retry-after")) || 2, 8) * 1000, signal);
+        continue;
+      }
+      if (!r.ok) { last = "HTTP " + r.status; if (r.status < 500) break; }
+      else return await r.json();
+    } catch (e) {
+      if (signal && signal.aborted) throw e;
+      last = String(e && e.message || e);
+    }
+    await sleepAbort(300 * (i + 1), signal);
+  }
+  throw new Error(last);
+}
+async function popdexTickers(signal) {
+  const all = [];
+  let cursor = "";
+  for (let page = 0; page < 20; page++) {
+    const q = new URLSearchParams({ category: "Futures", limit: "100" });
+    if (cursor) q.set("cursor", cursor);
+    const d = await popGet("/api/v1/public/market/tickers?" + q, signal);
+    if (!d || String(d.code) !== "200" || !Array.isArray(d.data)) throw new Error("bad tickers");
+    all.push(...d.data);
+    const total = +d.total;
+    if (!d.data.length || (Number.isFinite(total) && all.length >= total) || d.data.length < (+d.limit || 100)) break;
+    if (!d.cursor || String(d.cursor) === cursor) break;
+    cursor = String(d.cursor);
+  }
+  return all;
+}
+async function popdex7d(symbols, signal) {
+  const now = Date.now(), start = now - 168 * 3600 * 1000;
+  const uniq = [...new Set(symbols)];
+  const ret = new Array(uniq.length);
+  let next = 0, bad = false;
+  async function worker() {
+    for (;;) {
+      if (bad || (signal && signal.aborted)) return;
+      const i = next++;
+      if (i >= uniq.length) return;
+      try {
+        const q = new URLSearchParams({ category: "Futures", symbol: uniq[i], interval: "1H", limit: "180" });
+        const d = await popGet("/api/v1/public/market/candles?" + q, signal);
+        if (!d || String(d.code) !== "200" || !Array.isArray(d.data)) throw new Error("bad candles");
+        let s = 0;
+        for (const c of d.data) {
+          if (!Array.isArray(c)) throw new Error("bad candle");
+          const t = +c[0];
+          if (!Number.isFinite(t) || t < start || t > now) continue;
+          const quote = +c[6];
+          if (!Number.isFinite(quote) || quote < 0) throw new Error("bad quote");
+          s += quote;
+        }
+        ret[i] = s;
+      } catch (e) { bad = true; ret[i] = null; }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(5, uniq.length) }, () => worker()));
+  if (bad || !uniq.length || ret.some(v => v == null)) return null;
+  return ret.reduce((a, b) => a + b, 0);
+}
+async function popdexVols() {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 45000);
+  try {
+    const tickers = await popdexTickers(ac.signal);
+    let v24 = 0, n = 0; const syms = [];
+    for (const t of tickers) {
+      if (String(t.category || "").toLowerCase() !== "futures") continue;
+      const q = parseFloat(t.turnover24h);
+      if (Number.isFinite(q) && q >= 0) { v24 += q; n++; }
+      if (t.symbol) syms.push(t.symbol);
+    }
+    if (!n) return { volume24h: null, volume7d: null, error: "popdex tickers empty" };
+    let v7 = null;
+    if (!ac.signal.aborted) v7 = await popdex7d(syms, ac.signal);
+    return { volume24h: v24, volume7d: v7, error: v7 == null ? "popdex 7d failed" : null };
+  } catch (e) {
+    return { volume24h: null, volume7d: null, error: String(e && e.message || e) };
+  } finally { clearTimeout(timer); }
+}
 module.exports = async (req, res) => {
   const t0 = Date.now(); ERR = [];
+  const popP = CFG.exchanges.some(e => e.slug === "popdex") ? popdexVols() : Promise.resolve(null);
   const rows = await Promise.all(CFG.exchanges.map(one));
   await pmVols(rows);
   if (rows.some(r => r.coingecko && (r.volume24h == null || r.volume7d == null))) await vols(rows);
+  const pv = await popP;
+  const pr = rows.find(r => r.slug === "popdex");
+  if (pr && pv) {
+    if (pr.volume24h == null && pv.volume24h != null) { pr.volume24h = pv.volume24h; pr.volSource = "popdex"; }
+    if (pr.volume7d == null && pv.volume7d != null) pr.volume7d = pv.volume7d;
+    if (pv.error) ERR.push({ url: "/popdex", error: pv.error });
+  }
   res.statusCode = 200;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Cache-Control", "public, max-age=0, s-maxage=600, stale-while-revalidate=3600");
