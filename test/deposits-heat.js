@@ -148,9 +148,24 @@ assert.equal(entropySplit.includes("来自 Hyperliquid，同一时刻"), false);
 assert.equal(entropySplit.includes("DefiLlama"), true);
 assert.equal(entropySplit.includes("perpDexStatus"), true);
 
-const pop = api.depCell({ slug: "popdex", depositsSource: "manual", oiToDeposits: 1.2, depositsAt: "2026-10-08" });
-assert.equal(pop.includes("过期"), true);
+const pop = api.depCell({ slug: "popdex", depositsSource: "tvl-vault", oiSource: "popdex", oiToDeposits: 3.94, oiBasis: 37.9e6, userDeposits: 9.62e6, tvl: 71.4e6, popdexVaultUsd: 61.78e6, depositsAt: "2026-10-16T11:16:00Z", oiBasisAt: "2026-10-16T11:16:00Z" });
+assert.equal(pop.includes("3.94x"), true);
+assert.equal(pop.includes("过期"), false);
 assert.equal(pop.includes(">TVL<"), false);
+assert.equal(pop.includes(">桥−金库<"), true);
+assert.equal(pop.includes("存款 = 桥内 USDT − 协议金库（含闲置余额）"), true);
+assert.equal(pop.includes("同一次刷新"), true);
+const popMissing = api.depCell({ slug: "popdex", depositsSource: null, depositsReason: "PopDEX 协议金库取不到", oiToDeposits: null, oiBasis: 1 });
+assert.equal(popMissing.includes(">缺失<"), true);
+assert.equal(popMissing.includes("过期"), false);
+assert.equal(popMissing.includes("协议金库取不到"), true);
+const popOld = api.depCell({ slug: "popdex", depositsSource: "manual", oiToDeposits: 7.1, depositsAt: "2026-10-08" });
+assert.equal(popOld.includes(">缺失<"), true);
+assert.equal(popOld.includes("7.10x"), false);
+assert.equal(html.includes("手工快照"), false);
+assert.equal(html.includes("过期"), false);
+const popDl = api.depTip({ slug: "popdex", depositsSource: "tvl-vault", oiSource: "defillama", oiBasis: 1, userDeposits: 2 });
+assert.equal(popDl.includes("不是同一时刻"), true);
 
 const other = api.depCell({ slug: "bulk", depositsSource: "tvl", oiToDeposits: 2 });
 assert.equal(other.includes(">TVL<"), true);

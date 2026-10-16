@@ -6,8 +6,14 @@
 - api/data.js：服务器端函数，汇总 DefiLlama（页面用 OI、手续费；每行仍返回 tvl，供以后做存款分母）、perpsmania、CoinGecko，以及 PopDEX 官方公开行情。正常结果 Vercel CDN 缓存 10 分钟（s-maxage=600），过期后的 1 小时内先返回旧数据，同时在后台更新（stale-while-revalidate=3600）。DefiLlama、perpsmania、CoinGecko、Hyperliquid 每个请求自己 15 秒超时，并和整次 44 秒截止绑在同一个 AbortSignal 上。PopDEX 仍是单次 8 秒。一个源挂起或失败只让它自己的字段空着，并在 errors 里写上这个源；已经成功的行和字段照常返回，不会整表变成空。截止时 errors 仍写明停在哪一路、哪些交易所还挂着，以及 PopDEX 已完成的合约数。24H 已经算完而 7D 还没有时，24H 单独保留。44 秒截止，或 DefiLlama、Hyperliquid、perpsmania、CoinGecko、PopDEX 出现超时、5xx、429 时，只缓存 60 秒，不带 stale-while-revalidate。
 - api/txflow.js：只算 TxFlow 的 24H。最多 3 个并发。24H 成功时 CDN 缓存 1 小时，过期后的 1 小时内先返回旧数据（s-maxage=3600, stale-while-revalidate=3600）。24H 为空的失败缓存 5 分钟（s-maxage=300）。合约列表的 20 秒从上次 429 冷却结束才开始算，整个函数仍不超过 255 秒
 - api/txflow7d.js：只算 TxFlow 的 7D K 线。成功时 CDN 缓存 6 小时，过期后的 6 小时内先返回旧数据（s-maxage=21600, stale-while-revalidate=21600）。7D 为空缓存 5 分钟（s-maxage=300），页面显示缺失，不会写成 $0
-- config.json：交易所列表、DefiLlama slug、CoinGecko id、手工填写的 OI/用户存款
+- config.json：交易所列表、DefiLlama slug、CoinGecko id；manual 里是 2026-10-08 的历史快照，代码不再读取
 - vercel.json：api/data.js 最长 60 秒，api/txflow.js 和 api/txflow7d.js 最长 300 秒
+
+## 存款与 OI 口径（PopDEX）
+
+- 存款 = 桥内 USDT − 协议金库（含闲置余额）。即 DefiLlama `/tvl/popdex`（Arbitrum、Morph 两个桥合约里的 USDT）减官方 `GET https://api.popdex.xyz/api/v1/vaults?vaultType=Protocol` 返回的全部协议金库 `totalEquity × usdExchangeRate`。和 2026-10-08 hyperleaf 快照的口径相同（稳定币抵押减平台自有流动性金库）。没有官方「用户存款」字段，这是推算值，可能含闲置余额和未实现盈亏。
+- OI = 官方期货 tickers 的 `openInterest × markPrice` 之和（单边名义值，USDT），用的就是算 24H 交易量的那批 tickers，不多发请求，和存款同一次刷新取得。tickers 取不到时 OI 退回 DefiLlama，悬停写明不是同一时刻。
+- TVL 或协议金库任一取不到、数值非有限或为负，或相减后不为正，OI/存款格显示缺失，不回退旧快照。协议金库多 1 个官方请求，仍走 PopDEX 的 8 秒超时；失败写进 errors（`/popdex/vaults`），超时、5xx、429 时只缓存 60 秒。
 
 ## 交易量口径
 
@@ -24,4 +30,4 @@
 4. Vercel 项目设置里 Framework Preset 选 Other，Build Command 和 Output Directory 留空。
 
 ## 修改交易所或数据
-直接在 GitHub 上编辑 config.json：exchanges 里每项是 {"name","slug"(DefiLlama),"coingecko"(可选)}；可选 "token"（字符串），有值时在交易所名旁边显示小号灰色文字，例如 "token": "HYPE"。没有代币时名字旁边留空，不显示「缺失」。有代币名时悬停文字写在 "tokenNote"。depositsDisplay 为 "missing" 时，OI/存款格显示缺失。verification 写在备注格子的悬停里。manual 里按 slug 填 userDeposits 和 snapshotAt。备注写在该交易所的 "note"（字符串，空着显示 —），格子里只显示这一句，不放来源链接。手续费来源只接受 https://，并带 rel="noopener noreferrer"。不要写在 fee.note 里，那是手续费悬停说明。备注不参与合计，默认排序仍是 OI。备注列不能排序。例如 "note": "一句话"。Lighter 主行的 DefiLlama 请求用 "llamaSlug": "lighter-perps"（不含 Robinhood Chain）。Lighter 存款用 protocol/lighter 的 currentChainTvls.Ethereum，不用父协议总 TVL。feesDisplay 为 "missing" 或 "na" 时，手续费格显示缺失或不适用。热度里手续费行用手续费比的中位数，改用交易量的行用全部交易所交易量比的中位数。提交后自动重新部署。
+直接在 GitHub 上编辑 config.json：exchanges 里每项是 {"name","slug"(DefiLlama),"coingecko"(可选)}；可选 "token"（字符串），有值时在交易所名旁边显示小号灰色文字，例如 "token": "HYPE"。没有代币时名字旁边留空，不显示「缺失」。有代币名时悬停文字写在 "tokenNote"。depositsDisplay 为 "missing" 时，OI/存款格显示缺失。verification 写在备注格子的悬停里。manual 里的快照只作历史对照，页面不再使用。备注写在该交易所的 "note"（字符串，空着显示 —），格子里只显示这一句，不放来源链接。手续费来源只接受 https://，并带 rel="noopener noreferrer"。不要写在 fee.note 里，那是手续费悬停说明。备注不参与合计，默认排序仍是 OI。备注列不能排序。例如 "note": "一句话"。Lighter 主行的 DefiLlama 请求用 "llamaSlug": "lighter-perps"（不含 Robinhood Chain）。Lighter 存款用 protocol/lighter 的 currentChainTvls.Ethereum，不用父协议总 TVL。feesDisplay 为 "missing" 或 "na" 时，手续费格显示缺失或不适用。热度里手续费行用手续费比的中位数，改用交易量的行用全部交易所交易量比的中位数。提交后自动重新部署。

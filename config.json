@@ -206,7 +206,7 @@
     }
   ],
   "manual": {
-    "_note": "只有 popdex 的 userDeposits 还在页面上使用（标过期）。其他所的存款改为当前 TVL，Entropy 用 Hyperliquid。下面保留 2026-10-08 的 hyperleaf 快照，代码不再读取。",
+    "_note": "代码不再读取这里的任何数值。PopDEX 存款改为 DefiLlama TVL − 官方协议金库（实时），其他所用当前 TVL，Entropy 用 Hyperliquid。下面保留 2026-10-08 的 hyperleaf 快照，只作历史对照。",
     "hyperliquid": {
       "userDeposits": 6843415120.57,
       "oiAtSnapshot": 8078468472.95,

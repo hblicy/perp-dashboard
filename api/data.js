@@ -160,6 +160,35 @@ function popdexTurnover(tickers) {
   if (bad) return { volume24h: null, symbols, symbolGap, error: "popdex 24h invalid turnover24h" };
   return { volume24h, symbols, symbolGap, error: null };
 }
+// PopDEX 实时 OI：期货 tickers 的 openInterest × markPrice 之和（单边名义值，USDT）。任何一条无效就整体缺失。
+function popdexOi(tickers) {
+  let s = 0, n = 0;
+  for (const t of tickers || []) {
+    if (!t || String(t.category || "").toLowerCase() !== "futures") continue;
+    n++;
+    const q = Number(t.openInterest), px = Number(t.markPrice);
+    if (t.openInterest == null || t.markPrice == null || !Number.isFinite(q) || !Number.isFinite(px) || q < 0 || px < 0) return { value: null, reason: "popdex tickers 的 openInterest/markPrice 无效" };
+    s += q * px;
+  }
+  if (!n) return { value: null, reason: "popdex tickers 为空" };
+  return { value: s, reason: null };
+}
+// PopDEX 存款 = DefiLlama TVL（桥合约里的 USDT）− 官方协议金库净值（totalEquity × usdExchangeRate）。
+// 任一输入取不到、非有限或为负，或结果不为正，都返回缺失，不回退旧快照。
+function popdexDeposits(tvl, vaultBody) {
+  const t = N(tvl);
+  if (t == null || t <= 0) return { value: null, vaultUsd: null, reason: "DefiLlama TVL 取不到或无效" };
+  if (!vaultBody || String(vaultBody.code) !== "200" || !Array.isArray(vaultBody.data) || !vaultBody.data.length) return { value: null, vaultUsd: null, reason: "PopDEX 协议金库取不到" };
+  let vaultUsd = 0;
+  for (const v of vaultBody.data) {
+    const eq = Number(v && v.totalEquity), rate = Number(v && v.usdExchangeRate);
+    if (!v || v.totalEquity == null || v.usdExchangeRate == null || !Number.isFinite(eq) || !Number.isFinite(rate) || eq < 0 || rate <= 0) return { value: null, vaultUsd: null, reason: "PopDEX 协议金库数值无效" };
+    vaultUsd += eq * rate;
+  }
+  const dep = t - vaultUsd;
+  if (!Number.isFinite(dep) || dep <= 0) return { value: null, vaultUsd, reason: "TVL 不大于协议金库，存款无效" };
+  return { value: dep, vaultUsd, reason: null };
+}
 function sumQuoteWindow(candles, start, now) {
   if (!Array.isArray(candles)) return null;
   let s = 0;
@@ -269,6 +298,7 @@ async function entropyBook(dex, signal) {
 let inflight = new Set();
 let popProg = { done: 0, total: 0 };
 let popPartial = null;
+let popShared = null;
 function touchRatio(row) {
   row.oiToDeposits = row.userDeposits > 0 && row.oiBasis != null ? row.oiBasis / row.userDeposits : null;
 }
@@ -284,7 +314,7 @@ function applyOi(row, oi) {
     ch = p && p[1] > 0 ? l[1] / p[1] - 1 : null;
   }
   row.oiChange7d = N(ch);
-  if (row.oiSource === "hyperliquid") return;
+  if (row.oiSource === "hyperliquid" || row.oiSource === "popdex") return;
   const latest = newestPoint(oi.totalDataChart);
   const oiBasis = latest ? latest.v : N(oi.total24h);
   row.oi = o != null ? N(o) : N(oi.total24h);
@@ -310,7 +340,8 @@ function applyFees(row, ex, fe) {
 function settleDeposits(row, ex, ctx) {
   if (ex.hl_dex && ctx.hl === undefined) return;
   if (ex.slug === "lighter" && ctx.proto === undefined) return;
-  if (ex.slug !== "popdex" && ex.slug !== "lighter" && !ex.hl_dex && ex.depositsDisplay !== "missing" && ctx.tvl === undefined) return;
+  if (ex.slug === "popdex" && (ctx.tvl === undefined || ctx.pop === undefined)) return;
+  if (ex.slug !== "lighter" && !ex.hl_dex && ex.depositsDisplay !== "missing" && ctx.tvl === undefined) return;
   const observedAt = ctx.observedAt;
   let userDeposits = null, depositsAt = null, depositsSource = null, depositsReason = null;
   let tvl = ctx.tvl == null ? null : ctx.tvl;
@@ -320,9 +351,13 @@ function settleDeposits(row, ex, ctx) {
       row.oi = ctx.hl.oi; row.oiBasis = ctx.hl.oi; row.oiBasisAt = ctx.hl.at; row.oiSource = "hyperliquid";
     }
   } else if (ex.slug === "popdex") {
-    const m = (CFG.manual || {}).popdex || {};
-    userDeposits = N(m.userDeposits); depositsAt = m.snapshotAt || null;
-    if (userDeposits != null) depositsSource = "manual";
+    const v = ctx.pop.vault || {}, tk = ctx.pop.tickers || {};
+    const dep = popdexDeposits(ctx.tvl, v.body);
+    row.popdexVaultUsd = dep.vaultUsd;
+    if (dep.value != null) { userDeposits = dep.value; depositsAt = v.at || observedAt; depositsSource = "tvl-vault"; }
+    else depositsReason = v.error ? "PopDEX 协议金库取不到（" + v.error + "）" : dep.reason;
+    const oi = tk.error ? { value: null } : popdexOi(tk.tickers);
+    if (oi.value != null) { row.oi = oi.value; row.oiBasis = oi.value; row.oiBasisAt = tk.at || observedAt; row.oiSource = "popdex"; }
   } else if (ex.slug === "lighter") {
     const eth = lighterDeposit(ctx.proto);
     depositsAt = observedAt;
@@ -356,9 +391,11 @@ async function oneBody(ex, signal, row) {
   ];
   if (lighter) tasks.push(J(`${L}/protocol/lighter`, 2, "protocol/lighter", signal).then(proto => { ctx.proto = proto; settleDeposits(row, ex, ctx); }));
   else tasks.push(J(`${L}/tvl/${s}`, 2, undefined, signal).then(tv => { ctx.tvl = N(tv); settleDeposits(row, ex, ctx); }));
+  if (ex.slug === "popdex" && popShared) tasks.push(Promise.all([popShared.vault, popShared.tickers]).then(([vault, tickers]) => { ctx.pop = { vault, tickers }; settleDeposits(row, ex, ctx); }));
+  else if (ex.slug === "popdex") ctx.pop = { vault: { error: "not started" }, tickers: { error: "not started" } };
   if (ex.hl_dex) tasks.push(entropyBook(ex.hl_dex, signal).then(hl => { ctx.hl = hl; settleDeposits(row, ex, ctx); }));
   else ctx.hl = null;
-  if (ex.slug === "popdex" || ex.depositsDisplay === "missing") settleDeposits(row, ex, ctx);
+  if (ex.depositsDisplay === "missing") settleDeposits(row, ex, ctx);
   await Promise.all(tasks);
   settleDeposits(row, ex, ctx);
 }
@@ -467,11 +504,28 @@ async function popdex7d(symbols, signal) {
   if (bad || !uniq.length || ret.some(v => v == null)) return null;
   return ret.reduce((a, b) => a + b, 0);
 }
+// 协议金库和 tickers 各取一次：tickers 同时用于 24H 交易量和实时 OI，不额外请求。
+async function popdexVault(signal) {
+  try {
+    const body = await popGet("/api/v1/vaults?vaultType=Protocol", signal);
+    return { body, at: new Date().toISOString() };
+  } catch (e) {
+    const error = ownTimeout(e, signal) ? "timeout" : String(e && e.message || e);
+    ERR.push({ url: "/popdex/vaults", error });
+    return { error };
+  }
+}
+function startPop(signal) {
+  const tickers = popdexTickers(signal).then(t => ({ tickers: t, at: new Date().toISOString() }), e => ({ error: String(e && e.message || e) }));
+  return { tickers, vault: popdexVault(signal) };
+}
 function notePop(v) { popPartial = v; return v; }
-async function popdexVols(signal) {
+async function popdexVols(signal, tickersP) {
   let partial = null;
   try {
-    const tickers = await popdexTickers(signal);
+    const got = await (tickersP || popdexTickers(signal).then(t => ({ tickers: t })));
+    if (got.error) throw new Error(got.error);
+    const tickers = got.tickers;
     const summed = popdexTurnover(tickers);
     partial = notePop({ volume24h: summed.volume24h, volume7d: null, error24: summed.error, error7: null });
     let v7 = null, error7 = null;
@@ -502,7 +556,7 @@ function applyPop(rows, pv) {
 }
 async function handler(req, res) {
   const t0 = Date.now(); ERR = []; badUpstream = false;
-  inflight = new Set(); inflightReq = new Set(); popProg = { done: 0, total: 0 }; popPartial = null;
+  inflight = new Set(); inflightReq = new Set(); popProg = { done: 0, total: 0 }; popPartial = null; popShared = null;
   const ac = new AbortController();
   setMaxListeners(0, ac.signal);
   let sent = false, hard, phase = "defillama", popSettled = null, degraded = false;
@@ -533,8 +587,9 @@ async function handler(req, res) {
     finish({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: dedupeErr(ERR), rows });
   }, DEADLINE_MS);
   try {
-    const popP = CFG.exchanges.some(e => e.slug === "popdex")
-      ? popdexVols(ac.signal).then(v => { popSettled = v; return v; })
+    if (CFG.exchanges.some(e => e.slug === "popdex")) popShared = startPop(ac.signal);
+    const popP = popShared
+      ? popdexVols(ac.signal, popShared.tickers).then(v => { popSettled = v; return v; })
       : Promise.resolve(null);
     phase = "defillama";
     await Promise.all(CFG.exchanges.map(ex => one(ex, ac.signal, rows.find(r => r.slug === ex.slug))));
@@ -558,6 +613,8 @@ async function handler(req, res) {
 handler.feeSlice = feeSlice;
 handler.lighterDeposit = lighterDeposit;
 handler.applyHeat = applyHeat;
+handler.popdexDeposits = popdexDeposits;
+handler.popdexOi = popdexOi;
 handler.J = J;
 handler.REQ_MS = REQ_MS;
 handler.DEADLINE_MS = DEADLINE_MS;
