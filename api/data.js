@@ -1,6 +1,7 @@
 // Vercel 无服务器函数：汇总 DefiLlama + CoinGecko 数据，CDN 缓存 10 分钟
 const { setMaxListeners } = require("events");
 const CFG = require("../config.json");
+const { rawNum, FULL_WINDOW_HOURS } = require("./num");
 const L = "https://api.llama.fi", G = "https://api.coingecko.com/api/v3";
 const N = x => (typeof x === "number" && isFinite(x) ? x : null);
 function utcDay(ts) {
@@ -58,9 +59,11 @@ function chartMap(chart) {
   const m = new Map();
   for (const p of chart || []) {
     if (!p || p.length < 2) continue;
-    const day = utcDay(p[0]), v = N(+p[1]);
-    if (day == null || v == null) continue;
-    m.set(day, v);
+    const day = utcDay(p[0]);
+    if (day == null) continue;
+    const v = rawNum(p[1]);
+    // Keep an explicit null so a bad sample is not treated as a missing day and replaced by an older one.
+    if (!m.has(day) || (m.get(day) == null && v != null) || v != null) m.set(day, v);
   }
   return m;
 }
@@ -79,10 +82,12 @@ function newestPoint(chart) {
     if (!p || p.length < 2) continue;
     let t = +p[0];
     if (t > 1e12) t = Math.floor(t / 1000);
-    const v = N(+p[1]);
-    if (!Number.isFinite(t) || v == null) continue;
+    const v = rawNum(p[1]);
+    if (!Number.isFinite(t)) continue;
     if (!best || t >= best.t) best = { t, v };
   }
+  // The newest timestamp wins. A null there stays missing instead of sliding back to an older point.
+  if (!best || best.v == null) return null;
   return best;
 }
 function applyHeat(rows) {
@@ -91,12 +96,12 @@ function applyHeat(rows) {
   for (const r of rows) {
     r.volumeRatio = volumeRatio(r);
     if (r.volumeRatio != null) volVals.push(r.volumeRatio);
-    if (!r.feesDisplay && r.feeRatio != null && isFinite(+r.feeRatio)) feeVals.push(+r.feeRatio);
+    if (!r.feesDisplay && typeof r.feeRatio === "number" && Number.isFinite(r.feeRatio)) feeVals.push(r.feeRatio);
   }
   const feeMid = median(feeVals), volMid = median(volVals);
   for (const r of rows) {
-    const useFee = !r.feesDisplay && r.feeRatio != null && isFinite(+r.feeRatio);
-    if (useFee) { r.heatMetric = "fees"; r.heatRatio = +r.feeRatio; r.heatMedian = feeMid; }
+    const useFee = !r.feesDisplay && typeof r.feeRatio === "number" && Number.isFinite(r.feeRatio);
+    if (useFee) { r.heatMetric = "fees"; r.heatRatio = r.feeRatio; r.heatMedian = feeMid; }
     else if (r.volumeRatio != null) { r.heatMetric = "volume"; r.heatRatio = r.volumeRatio; r.heatMedian = volMid; }
     else { r.heatMetric = null; r.heatRatio = null; r.heatMedian = null; }
     if (r.heatRatio == null || !(r.heatMedian > 0)) { r.heatRelative = null; r.heatLabel = null; continue; }
@@ -144,21 +149,44 @@ function dedupeErr(list) {
   }
   return out;
 }
-function popdexTurnover(tickers) {
-  let volume24h = 0, n = 0, bad = false, symbolGap = false;
-  const symbols = [];
+function popdexKept(tickers, pred) {
+  const out = [], seen = new Set();
+  let symbolGap = false;
   for (const t of tickers || []) {
-    if (String(t.category || "").toLowerCase() !== "futures") continue;
-    n++;
-    if (t.symbol) symbols.push(t.symbol);
+    if (!pred(t)) continue;
+    const sym = t && t.symbol != null && String(t.symbol) ? String(t.symbol) : "";
+    if (!sym) { symbolGap = true; out.push(t); continue; }
+    if (seen.has(sym)) continue;
+    seen.add(sym);
+    out.push(t);
+  }
+  return { rows: out, symbolGap };
+}
+function popdexTurnover(tickers) {
+  let volume24h = 0, bad = false;
+  const kept = popdexKept(tickers, t => t && String(t.category || "").toLowerCase() === "futures");
+  const symbols = [], listed = {};
+  let symbolGap = kept.symbolGap;
+  const n = kept.rows.length;
+  for (const t of kept.rows) {
+    if (t.symbol) { symbols.push(String(t.symbol)); listed[String(t.symbol)] = listingMs(t); }
     else symbolGap = true;
     const q = typeof t.turnover24h === "number" ? t.turnover24h : (typeof t.turnover24h === "string" && t.turnover24h.trim() ? Number(t.turnover24h) : NaN);
     if (!Number.isFinite(q) || q < 0) bad = true;
     else volume24h += q;
   }
-  if (!n) return { volume24h: null, symbols, symbolGap: true, error: "popdex tickers empty" };
-  if (bad) return { volume24h: null, symbols, symbolGap, error: "popdex 24h invalid turnover24h" };
-  return { volume24h, symbols, symbolGap, error: null };
+  if (!n) return { volume24h: null, symbols, listed, symbolGap: true, error: "popdex tickers empty" };
+  if (bad) return { volume24h: null, symbols, listed, symbolGap, error: "popdex 24h invalid turnover24h" };
+  return { volume24h, symbols, listed, symbolGap, error: null };
+}
+function listingMs(t) {
+  if (!t) return null;
+  for (const k of ["launchTime", "listTime", "listingTime", "createdTime", "onlineTime"]) {
+    if (t[k] == null) continue;
+    const n = popdexMs(t[k]);
+    if (n != null) return n;
+  }
+  return null;
 }
 // PopDEX 口径阈值。TVL 点、金库汇率、存款占 TVL 的下限、ticker 更新时间都只认这些常量。
 const POPDEX_TVL_MAX_AGE_SEC = 6 * 3600;
@@ -232,7 +260,7 @@ function popdexDeposits(tvlPoint, vaultBody) {
   if (!tvlPoint || tvlPoint.reason || !(tvlPoint.value > 0)) {
     return { value: null, vaultUsd: vault.vaultUsd, tvl: null, reason: (tvlPoint && tvlPoint.reason) || "DefiLlama TVL 取不到或无效", pushError: !!(tvlPoint && tvlPoint.reason && tvlPoint.atSec != null) };
   }
-  if (vault.reason) return { value: null, vaultUsd: null, tvl: tvlPoint.value, reason: vault.reason, pushError: false };
+  if (vault.reason) return { value: null, vaultUsd: null, tvl: tvlPoint.value, reason: vault.reason, pushError: vault.reason.indexOf("usdExchangeRate") >= 0 };
   const tvl = tvlPoint.value;
   const dep = tvl - vault.vaultUsd;
   if (vault.vaultUsd > tvl) return { value: null, vaultUsd: vault.vaultUsd, tvl, reason: "协议金库大于桥内 TVL", pushError: true };
@@ -243,11 +271,10 @@ function popdexDeposits(tvlPoint, vaultBody) {
 // 只加 Trading 期货。openInterest ≥ 0、markPrice > 0、updatedTime 够新；任一条不合格则整段缺失，不返回部分和。
 function popdexOi(tickers, nowMs) {
   const now = nowMs == null ? Date.now() : nowMs;
-  let s = 0, n = 0;
-  for (const t of tickers || []) {
-    if (!t || String(t.category || "").toLowerCase() !== "futures") continue;
-    if (String(t.status || "").toLowerCase() !== "trading") continue;
-    n++;
+  let s = 0;
+  const kept = popdexKept(tickers, t => t && String(t.category || "").toLowerCase() === "futures" && String(t.status || "").toLowerCase() === "trading");
+  const n = kept.rows.length;
+  for (const t of kept.rows) {
     const q = popdexNum(t.openInterest), px = popdexNum(t.markPrice), ut = popdexMs(t.updatedTime);
     if (q == null || px == null || q < 0 || !(px > 0)) return { value: null, reason: "popdex tickers 的 openInterest/markPrice 无效" };
     if (ut == null || ut > now + 60000 || now - ut > POPDEX_OI_MAX_AGE_MS) return { value: null, reason: "popdex tickers 的 updatedTime 过旧或无效" };
@@ -256,19 +283,37 @@ function popdexOi(tickers, nowMs) {
   if (!n) return { value: null, reason: "popdex tickers 为空" };
   return { value: s, reason: null };
 }
-function sumQuoteWindow(candles, start, now) {
+// Hourly quote volume. A full window is FULL_WINDOW_HOURS contiguous candles.
+// listedAt under 7 days: sum the hours on hand and mark approximate. Otherwise a short or gapped window is missing, never 0.
+function sumQuoteWindow(candles, start, now, listedAt) {
   if (!Array.isArray(candles)) return null;
-  let s = 0;
+  const hour = 3600000;
+  const rows = [];
+  let older = false;
   for (const c of candles) {
     if (!Array.isArray(c)) return null;
-    const t = Number(c[0]);
-    if (!Number.isFinite(t)) return null;
-    if (t < start || t > now) continue;
-    const quote = Number(c[6]);
-    if (!Number.isFinite(quote) || quote < 0) return null;
-    s += quote;
+    const t = rawNum(c[0]);
+    if (t == null) return null;
+    if (t < start) { older = true; continue; }
+    if (t > now) continue;
+    const quote = rawNum(c[6]);
+    if (quote == null || quote < 0) return null;
+    rows.push({ t, quote });
   }
-  return s;
+  if (!rows.length) return null;
+  rows.sort((a, b) => a.t - b.t);
+  const uniq = [];
+  for (const row of rows) {
+    if (uniq.length && uniq[uniq.length - 1].t === row.t) continue;
+    uniq.push(row);
+  }
+  const first = uniq[0].t, last = uniq[uniq.length - 1].t;
+  const span = Math.round((last - first) / hour) + 1;
+  const sum = uniq.reduce((s, row) => s + row.quote, 0);
+  const young = listedAt != null && listedAt <= now && now - listedAt < FULL_WINDOW_HOURS * hour;
+  if (young) return { value: sum, approx: true, count: uniq.length };
+  if (older || uniq.length < FULL_WINDOW_HOURS || span !== uniq.length) return null;
+  return { value: sum, approx: false, count: uniq.length };
 }
 let ERR = [];
 let inflightReq = new Set();
@@ -354,8 +399,8 @@ async function entropyBook(dex, signal) {
     let s = 0, ok = true;
     for (let i = 0; i < uni.length; i++) {
       if (uni[i] && uni[i].isDelisted) continue;
-      const c = ctx[i] || {}, q = +c.openInterest, px = +c.markPx;
-      if (!Number.isFinite(q) || !Number.isFinite(px) || q < 0 || px < 0) { ok = false; break; }
+      const c = ctx[i] || {}, q = rawNum(c.openInterest), px = rawNum(c.markPx);
+      if (q == null || px == null || q < 0 || px < 0) { ok = false; break; }
       s += q * px;
     }
     if (ok) oi = s;
@@ -368,15 +413,6 @@ let popPartial = null;
 let popShared = null;
 function touchRatio(row) {
   row.oiToDeposits = row.userDeposits > 0 && row.oiBasis != null ? row.oiBasis / row.userDeposits : null;
-}
-// Chart samples stay null when the upstream value is null, blank, or not a number. Unary plus would turn those into 0.
-function rawNum(raw) {
-  if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
-  if (typeof raw === "string" && raw.trim()) {
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
 }
 function pointOnDay(chart, day) {
   let best = null;
@@ -525,7 +561,7 @@ async function vols(rows, signal) {
   const by = Object.fromEntries(lst.map(e => [e.id, e]));
   const R = s => rows.find(r => r.slug === s);
   const todo = CFG.exchanges.filter(ex => ex.coingecko && by[ex.coingecko] && (R(ex.slug).volume24h == null || R(ex.slug).volume7d == null));
-  for (const ex of todo) { const r = R(ex.slug); if (r.volume24h != null) continue; const v = parseFloat(by[ex.coingecko].trade_volume_24h_btc); if (isFinite(v)) { r.volume24h = v * btc; r.volSource = "coingecko"; } }
+  for (const ex of todo) { const r = R(ex.slug); if (r.volume24h != null) continue; const v = rawNum(by[ex.coingecko].trade_volume_24h_btc); if (v != null) { r.volume24h = v * btc; r.volSource = "coingecko"; } }
   for (let i = 0; i < todo.length; i += 2) { // 每批 2 个并发，避免 CoinGecko 限流
     await Promise.all(todo.slice(i, i + 2).map(async ex => {
       if (R(ex.slug).volume7d != null) return;
@@ -533,15 +569,35 @@ async function vols(rows, signal) {
       let c;
       try { c = await J(`${G}/exchanges/${ex.coingecko}/volume_chart?days=7`, 3, undefined, signal); }
       finally { inflight.delete(ex.slug); }
-      if (!Array.isArray(c) || !c.length) return;
-      const P = c.map(([t, v]) => [t, +v]).sort((a, b) => a[0] - b[0]), last = P[P.length - 1][0], pk = [];
-      for (let k = 0; k < 7; k++) { const t = last - k * 864e5; const b = P.reduce((a, x) => Math.abs(x[0] - t) < Math.abs(a[0] - t) ? x : a); if (Math.abs(b[0] - t) <= 72e5) pk.push(b[1]); }
-      if (pk.length === 7) rows.find(r => r.slug === ex.slug).volume7d = pk.reduce((a, b) => a + b, 0) * btc;
+      const sum = cgWindowSum(c);
+      if (sum != null) rows.find(r => r.slug === ex.slug).volume7d = sum * btc;
     }));
   }
 }
+// Seven samples 24h apart. A null sample is missing, not zero, and is not replaced by a neighbor.
+function cgWindowSum(chart) {
+  if (!Array.isArray(chart) || !chart.length) return null;
+  const P = [];
+  for (const row of chart) {
+    if (!row || row.length < 2) continue;
+    const t = rawNum(row[0]);
+    if (t == null) continue;
+    P.push([t, rawNum(row[1])]);
+  }
+  if (!P.length) return null;
+  P.sort((a, b) => a[0] - b[0]);
+  const last = P[P.length - 1][0], pk = [];
+  for (let k = 0; k < 7; k++) {
+    const t = last - k * 864e5;
+    let b = P[0];
+    for (const x of P) if (Math.abs(x[0] - t) < Math.abs(b[0] - t)) b = x;
+    if (Math.abs(b[0] - t) > 72e5 || b[1] == null) return null;
+    pk.push(b[1]);
+  }
+  return pk.reduce((a, b) => a + b, 0);
+}
 // PopDEX 官方公开行情（无 key）。浏览器无 CORS，只能在这里取。
-// 24h = Σ turnover24h；7d = 滚动 168 小时 1H K 线的报价成交额（index[6]），不是估算。
+// 24h = Σ turnover24h。7d 要满 168 根 1H K 线；上市不足 7 天则按已有小时合计并标近似。空窗和 null 字段都是缺失。
 async function popGet(path, signal) {
   const url = "https://api.popdex.xyz" + path;
   let last = "error";
@@ -592,12 +648,12 @@ async function popdexTickers(signal) {
   if (all.length !== total) throw new Error("popdex tickers count mismatch");
   return all;
 }
-async function popdex7d(symbols, signal) {
-  const now = Date.now(), start = now - 168 * 3600 * 1000;
+async function popdex7d(symbols, signal, listed) {
+  const now = Date.now(), start = now - FULL_WINDOW_HOURS * 3600 * 1000;
   const uniq = [...new Set(symbols)];
   popProg = { done: 0, total: uniq.length };
   const ret = new Array(uniq.length);
-  let next = 0, bad = false;
+  let next = 0, bad = false, approx = false;
   async function worker() {
     for (;;) {
       if (bad || (signal && signal.aborted)) return;
@@ -607,16 +663,17 @@ async function popdex7d(symbols, signal) {
         const q = new URLSearchParams({ category: "Futures", symbol: uniq[i], interval: "1H", limit: "180" });
         const d = await popGet("/api/v1/public/market/candles?" + q, signal);
         if (!d || String(d.code) !== "200" || !Array.isArray(d.data)) throw new Error("bad candles");
-        const s = sumQuoteWindow(d.data, start, now);
-        if (s == null) throw new Error("bad candle");
-        ret[i] = s;
+        const s = sumQuoteWindow(d.data, start, now, listed && listed[uniq[i]]);
+        if (!s || s.value == null) throw new Error("bad candle");
+        if (s.approx) approx = true;
+        ret[i] = s.value;
         popProg.done++;
       } catch (e) { bad = true; ret[i] = null; }
     }
   }
   await Promise.all(Array.from({ length: Math.min(5, uniq.length) }, () => worker()));
   if (bad || !uniq.length || ret.some(v => v == null)) return null;
-  return ret.reduce((a, b) => a + b, 0);
+  return { value: ret.reduce((a, b) => a + b, 0), approx };
 }
 // 协议金库和 tickers 各取一次：tickers 同时用于 24H 交易量和实时 OI，不额外请求。
 async function popdexVault(signal) {
@@ -641,15 +698,15 @@ async function popdexVols(signal, tickersP) {
     if (got.error) throw new Error(got.error);
     const tickers = got.tickers;
     const summed = popdexTurnover(tickers);
-    partial = notePop({ volume24h: summed.volume24h, volume7d: null, error24: summed.error, error7: null });
+    partial = notePop({ volume24h: summed.volume24h, volume7d: null, volume7dApprox: false, error24: summed.error, error7: null });
     let v7 = null, error7 = null;
     if (summed.symbolGap || !summed.symbols.length) error7 = "popdex 7d incomplete";
     else if (signal && signal.aborted) error7 = "popdex 7d timed out";
     else {
-      v7 = await popdex7d(summed.symbols, signal);
-      if (v7 == null) error7 = "popdex 7d incomplete";
+      v7 = await popdex7d(summed.symbols, signal, summed.listed);
+      if (v7 == null || v7.value == null) error7 = "popdex 7d incomplete";
     }
-    return notePop({ volume24h: summed.volume24h, volume7d: v7, error24: summed.error, error7 });
+    return notePop({ volume24h: summed.volume24h, volume7d: v7 && v7.value != null ? v7.value : null, volume7dApprox: !!(v7 && v7.approx), error24: summed.error, error7 });
   } catch (e) {
     const msg = String(e && e.message || e);
     if (partial && partial.volume24h != null) return notePop({ volume24h: partial.volume24h, volume7d: null, error24: partial.error24, error7: msg });
@@ -664,7 +721,7 @@ function applyPop(rows, pv) {
   const pr = rows && rows.find(r => r.slug === "popdex");
   if (!pr || !pv) return;
   if (pr.volume24h == null && pv.volume24h != null) { pr.volume24h = pv.volume24h; pr.volSource = "popdex"; }
-  if (pr.volume7d == null && pv.volume7d != null) pr.volume7d = pv.volume7d;
+  if (pr.volume7d == null && pv.volume7d != null) { pr.volume7d = pv.volume7d; if (pv.volume7dApprox) pr.volume7dApprox = true; }
   if (pv.error24) ERR.push({ url: "/popdex", error: pv.error24 });
   if (pv.error7 && pv.error7 !== pv.error24) ERR.push({ url: "/popdex", error: pv.error7 });
 }
@@ -727,11 +784,15 @@ async function handler(req, res) {
 handler.feeSlice = feeSlice;
 handler.applyOi = applyOi;
 handler.touchRatio = touchRatio;
-handler.lighterDeposit = lighterDeposit;
 handler.applyHeat = applyHeat;
+handler.lighterDeposit = lighterDeposit;
 handler.popdexDeposits = popdexDeposits;
 handler.popdexProtocolTvl = popdexProtocolTvl;
 handler.popdexOi = popdexOi;
+handler.popdexTurnover = popdexTurnover;
+handler.sumQuoteWindow = sumQuoteWindow;
+handler.cgWindowSum = cgWindowSum;
+handler.rawNum = rawNum;
 handler.POPDEX_TVL_MAX_AGE_SEC = POPDEX_TVL_MAX_AGE_SEC;
 handler.POPDEX_VAULT_RATE_MIN = POPDEX_VAULT_RATE_MIN;
 handler.POPDEX_VAULT_RATE_MAX = POPDEX_VAULT_RATE_MAX;
