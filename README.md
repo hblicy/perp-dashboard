@@ -2,7 +2,7 @@
 
 - index.html：页面，打开后读取 /api/data，再单独请求 /api/txflow，并在浏览器里补 Entropy 的 7D
 - api/data.js：服务器端函数，汇总 DefiLlama（页面用 OI、手续费；每行仍返回 tvl，供以后做存款分母）、perpsmania、CoinGecko，以及 PopDEX 官方公开行情。正常结果 Vercel CDN 缓存 10 分钟（s-maxage=600），过期后的 1 小时内先返回旧数据，同时在后台更新（stale-while-revalidate=3600）。整次请求的 44 秒截止会打断这四路。截止时 errors 写明停在哪一路、哪些交易所还挂着，以及 PopDEX 已完成的合约数。24H 已经算完而 7D 还没有时，24H 单独保留。这种不完整结果只缓存 60 秒
-- api/txflow.js：只算 TxFlow。最多 3 个并发。成功时 CDN 缓存 1 小时；失败时缓存 5 分钟（s-maxage=300），避免每个访客都把约 468 次请求打到同一出口 IP。合约列表 20 秒内拿不到就直接返回失败，不再干等到 255 秒
+- api/txflow.js：只算 TxFlow。最多 3 个并发。24H 和 7D 都有时 CDN 缓存 1 小时，过期后的 1 小时内先返回旧数据（s-maxage=3600, stale-while-revalidate=3600）。24H 已有而 7D 为空时缓存 1 小时，不带 stale-while-revalidate（s-maxage=3600）。24H 为空的失败缓存 5 分钟（s-maxage=300），避免每个访客都把约 468 次请求打到同一出口 IP。合约列表 20 秒内拿不到就直接返回失败，不再干等到 255 秒
 - config.json：交易所列表、DefiLlama slug、CoinGecko id、手工填写的 OI/用户存款
 - vercel.json：api/data.js 最长 60 秒，api/txflow.js 最长 300 秒
 
@@ -10,7 +10,7 @@
 
 - 多数交易所：perpsmania，没有则用 CoinGecko。
 - PopDEX：官方公开 API，服务器端取（浏览器没有 CORS）。24H 是全部期货 `turnover24h` 之和，7D 是滚动 168 小时 1H K 线的报价成交额。金额是 USDT。文档没写清单边还是双边，未核实。任何一条无效，或任何一张 K 线取失败，对应的 24H 或 7D 就是缺失（页面显示“缺失”），不会公布少算的合计。
-- TxFlow：24H 是各永续 `dayNtlVlm` 之和。7D 是滚动 168 小时 K 线的基础币成交量乘 OHLC 均价，页面标“近似”。悬停的覆盖比例是恰好 24 小时的 K 线对比官方 `dayNtlVlm`：起始那根跨过边界的小时 K 线只按落在窗口内的分钟比例计入。K 线基础币成交量低于 dayNtlVlm，偏差大约在低 2–8%，而且会波动。K 线阶段失败或超时时，如果每个合约的 24H 都已成功，仍返回精确的 24H，7D 和覆盖比例为空，这个结果缓存 5 分钟以便重试 7D。24H 或 7D 各自仍是全有或全无，不会公布少算的合计。其它失败也缓存 5 分钟。
+- TxFlow：24H 是各永续 `dayNtlVlm` 之和。7D 是滚动 168 小时 K 线的基础币成交量乘 OHLC 均价，页面标“近似”。悬停的覆盖比例是恰好 24 小时的 K 线对比官方 `dayNtlVlm`：起始那根跨过边界的小时 K 线只按落在窗口内的分钟比例计入。K 线基础币成交量低于 dayNtlVlm，偏差大约在低 2–8%，而且会波动。K 线数组是空的时，这一合约的 7D 算失败，不会把空数据记成 $0。K 线阶段失败或超时时，如果每个合约的 24H 都已成功，仍返回精确的 24H，7D 和覆盖比例为空，这个结果 CDN 缓存 1 小时（s-maxage=3600），不带 stale-while-revalidate。24H 或 7D 各自仍是全有或全无，不会公布少算的合计。24H 为空的其它失败缓存 5 分钟。响应里的 timing：`cooldown429WallMs` 是 HTTP 429 把共享冷却截止时间向后推的墙钟毫秒，同一次冷却不按 3 个并发重复加（retry-after 2 秒大约记 2000）。`backoffMs` 是重试间隔，加上第二轮补拉前的等待。`cooldownRemainingAtStartMs` 是这个实例上一次运行留下的冷却还剩多少。日志多一个 `node`（Node 版本），响应 JSON 里没有这个字段。
 - Entropy：24H 用 Hyperliquid `dayNtlVlm`。7D 在浏览器里用 `candleSnapshot` 估算（未下架合约，滚动 168 小时），也标“近似”。
 - 不要把 Hyperliquid 和 Entropy 的交易量相加。Hyperliquid 一行的 24H 来自 perpsmania，很可能已经包含 HIP-3 子所（包括 Entropy）。
 
