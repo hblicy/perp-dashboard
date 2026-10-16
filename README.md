@@ -21,4 +21,4 @@
 4. Vercel 项目设置里 Framework Preset 选 Other，Build Command 和 Output Directory 留空。
 
 ## 修改交易所或数据
-直接在 GitHub 上编辑 config.json：exchanges 里每项是 {"name","slug"(DefiLlama),"coingecko"(可选)}；manual 里按 slug 填 userDeposits 和 snapshotAt。备注写在该交易所的 "note"（空着页面显示 —），可选 "noteUrl" 作为来源链接，例如 "note": "一句话理由", "noteUrl": "https://example.com"。不要写在 fee.note 里，那是手续费悬停说明。提交后自动重新部署。
+直接在 GitHub 上编辑 config.json：exchanges 里每项是 {"name","slug"(DefiLlama),"coingecko"(可选)}；manual 里按 slug 填 userDeposits 和 snapshotAt。备注写在该交易所的 "note"（空着页面显示 —），可选 "noteUrl" 作为来源链接，例如 "note": "一句话理由", "noteUrl": "https://example.com"。不要写在 fee.note 里，那是手续费悬停说明。X 社区估算每分成本写在 "costPerPoint"（字段都可选，空着显示 —，不参与合计，默认排序仍是 OI）。有 low 和 high 时显示区间，否则显示 median，并标「社区估算」。例如 "costPerPoint": {"low": 8, "high": 15, "median": 11, "unit": "USD", "samples": 24, "date": "2026-10-16", "sources": ["https://example.com/thread"]}。提交后自动重新部署。
