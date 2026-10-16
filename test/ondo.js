@@ -21,7 +21,7 @@ assert.equal(ondo.depositsDisplay, "missing");
 assert.equal(ondo.coingecko, "ondo-perps");
 assert.equal(ondo.perpsmania, "ondo");
 assert.equal(ondo.llamaSlug, undefined);
-assert.equal(ondo.note, "周 500 万分，兑换未公布");
+assert.equal(ondo.note, "阶段未公布，周500万分，分发日未公布");
 assert.equal(ondo.verification, undefined);
 assert.equal(ondo.noteSources, undefined);
 assert.equal(ondo.costPerPoint, undefined);
@@ -56,7 +56,7 @@ assert.equal(hype.includes("缺失"), false);
 assert.equal(api.nameCell({ name: "Pacifica" }).includes("缺失"), false);
 
 const note = api.noteCell(ondo);
-assert.equal(note.includes("周 500 万分，兑换未公布"), true);
+assert.equal(note.includes("阶段未公布，周500万分，分发日未公布"), true);
 assert.equal(note.includes("部分核实"), false);
 assert.equal(note.includes("未见独立代币"), false);
 assert.equal(note.includes("<a "), false);
