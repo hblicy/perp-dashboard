@@ -194,48 +194,25 @@ function newestTvlPoint(series) {
   }
   return best;
 }
-function popdexBridgeKey(v) {
-  return String(v || "").toLowerCase().replace(/[\s_]+/g, "-") === "popdex-bridge";
-}
-function findPopdexBridge(proto) {
-  if (!proto || typeof proto !== "object") return null;
-  for (const bag of [proto.chainTvls, proto.protocols, proto.breakdown]) {
-    if (!bag || typeof bag !== "object") continue;
-    const items = Array.isArray(bag) ? bag.map((item, i) => [item && (item.slug || item.name || item.module || i), item]) : Object.entries(bag);
-    for (const [k, v] of items) {
-      if (popdexBridgeKey(k) || (v && typeof v === "object" && (popdexBridgeKey(v.slug) || popdexBridgeKey(v.name) || popdexBridgeKey(v.module)))) return v;
-    }
-  }
-  return null;
-}
-// DefiLlama /protocol/popdex：有 popdex-bridge 条目就用它的最新点，否则两条链必须恰好是 Arbitrum 与 Morph。
+// DefiLlama /protocol/popdex-bridge 自己的 chainTvls。链必须恰好是 Arbitrum 与 Morph。
 function popdexProtocolTvl(proto, nowMs) {
   const blank = (reason, atSec) => ({ value: null, atSec: atSec == null ? null : atSec, atIso: atSec == null ? null : new Date(atSec * 1000).toISOString(), reason });
-  if (!proto || typeof proto !== "object") return blank("DefiLlama protocol/popdex 取不到");
+  if (!proto || typeof proto !== "object") return blank("DefiLlama protocol/popdex-bridge 取不到");
   const nowSec = (nowMs == null ? Date.now() : nowMs) / 1000;
-  const bridge = findPopdexBridge(proto);
-  let value = null, atSec = null;
-  if (bridge) {
-    const pt = newestTvlPoint(bridge);
-    if (!pt || !(pt.value > 0)) return blank("popdex-bridge TVL 无效");
-    value = pt.value; atSec = pt.date;
-  } else {
-    const ct = proto.chainTvls;
-    if (!ct || typeof ct !== "object" || Array.isArray(ct)) return blank("protocol/popdex 没有 chainTvls");
-    const keys = Object.keys(ct);
-    if (keys.length !== POPDEX_CHAINS.length || POPDEX_CHAINS.some(name => !Object.prototype.hasOwnProperty.call(ct, name))) return blank("protocol/popdex 的链不是 Arbitrum 与 Morph");
-    let sum = 0, oldest = null;
-    for (const name of POPDEX_CHAINS) {
-      const pt = newestTvlPoint(ct[name]);
-      if (!pt || pt.value < 0) return blank("protocol/popdex 的 " + name + " TVL 无效");
-      sum += pt.value;
-      if (oldest == null || pt.date < oldest) oldest = pt.date;
-    }
-    if (!(sum > 0)) return blank("DefiLlama TVL 取不到或无效");
-    value = sum; atSec = oldest;
+  const ct = proto.chainTvls;
+  if (!ct || typeof ct !== "object" || Array.isArray(ct)) return blank("protocol/popdex-bridge 没有 chainTvls");
+  const keys = Object.keys(ct);
+  if (keys.length !== POPDEX_CHAINS.length || POPDEX_CHAINS.some(name => !Object.prototype.hasOwnProperty.call(ct, name))) return blank("protocol/popdex-bridge 的链不是 Arbitrum 与 Morph");
+  let sum = 0, oldest = null;
+  for (const name of POPDEX_CHAINS) {
+    const pt = newestTvlPoint(ct[name]);
+    if (!pt || pt.value < 0) return blank("protocol/popdex-bridge 的 " + name + " TVL 无效");
+    sum += pt.value;
+    if (oldest == null || pt.date < oldest) oldest = pt.date;
   }
-  if (nowSec - atSec > POPDEX_TVL_MAX_AGE_SEC) return blank("DefiLlama TVL 点超过 6 小时", atSec);
-  return { value, atSec, atIso: new Date(atSec * 1000).toISOString(), reason: null };
+  if (!(sum > 0)) return blank("DefiLlama TVL 取不到或无效");
+  if (nowSec - oldest > POPDEX_TVL_MAX_AGE_SEC) return blank("DefiLlama TVL 点超过 6 小时", oldest);
+  return { value: sum, atSec: oldest, atIso: new Date(oldest * 1000).toISOString(), reason: null };
 }
 function popdexVaultSum(vaultBody) {
   if (!vaultBody || String(vaultBody.code) !== "200" || !Array.isArray(vaultBody.data) || !vaultBody.data.length) return { vaultUsd: null, reason: "PopDEX 协议金库取不到" };
@@ -492,7 +469,7 @@ async function oneBody(ex, signal, row) {
     J(`${L}/summary/fees/${s}?excludeTotalDataChartBreakdown=true`, 2, undefined, signal).then(fe => applyFees(row, ex, fe))
   ];
   if (lighter) tasks.push(J(`${L}/protocol/lighter`, 2, "protocol/lighter", signal).then(proto => { ctx.proto = proto; settleDeposits(row, ex, ctx); }));
-  else if (ex.slug === "popdex") tasks.push(J(`${L}/protocol/popdex`, 2, "protocol/popdex", signal).then(proto => { ctx.llama = proto; settleDeposits(row, ex, ctx); }));
+  else if (ex.slug === "popdex") tasks.push(J(`${L}/protocol/popdex-bridge`, 2, "protocol/popdex-bridge", signal).then(proto => { ctx.llama = proto; settleDeposits(row, ex, ctx); }));
   else tasks.push(J(`${L}/tvl/${s}`, 2, undefined, signal).then(tv => { ctx.tvl = N(tv); settleDeposits(row, ex, ctx); }));
   if (ex.slug === "popdex" && popShared) tasks.push(Promise.all([popShared.vault, popShared.tickers]).then(([vault, tickers]) => { ctx.pop = { vault, tickers }; settleDeposits(row, ex, ctx); }));
   else if (ex.slug === "popdex") ctx.pop = { vault: { error: "not started" }, tickers: { error: "not started" } };

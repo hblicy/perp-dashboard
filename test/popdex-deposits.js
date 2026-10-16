@@ -74,18 +74,16 @@ assert.equal(data.popdexDeposits(fresh, vaultOf(10, 1.051)).value, null);
 assert.equal(data.popdexDeposits(fresh, { code: "200", data: [{ totalEquity: "10" }] }).value, null);
 assert.equal(data.popdexDeposits(fresh, { code: "200", data: [{ totalEquity: "10", usdExchangeRate: "abc" }] }).value, null);
 
-// 4) popdex-bridge wins even when other chains are present. Otherwise chains must be exactly Arbitrum + Morph. Stale point is missing.
-const bridge = data.popdexProtocolTvl({
+// Chain set must be exactly Arbitrum + Morph. A nested bridge entry is not searched.
+const nested = data.popdexProtocolTvl({
   chainTvls: {
     "popdex-bridge": { tvl: [{ date: AT, totalLiquidityUSD: 80 }] },
     Ethereum: { tvl: [{ date: AT, totalLiquidityUSD: 5 }] }
   }
 }, NOW);
-assert.equal(bridge.value, 80);
-assert.equal(bridge.reason, null);
-assert.ok(bridge.atIso);
+assert.equal(nested.value, null);
 const named = data.popdexProtocolTvl({ protocols: [{ name: "Popdex Bridge", tvl: [{ date: AT, totalLiquidityUSD: 77 }] }] }, NOW);
-assert.equal(named.value, 77);
+assert.equal(named.value, null);
 const extra = data.popdexProtocolTvl({
   chainTvls: {
     Arbitrum: { tvl: [{ date: AT, totalLiquidityUSD: 10 }] },
@@ -175,14 +173,20 @@ function abort() {
   throw Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
 }
 function mock(opts) {
-  const count = { tickers: 0, vaults: 0, protocol: 0, tvlPop: 0 };
+  const count = { tickers: 0, vaults: 0, protocol: 0, parent: 0, tvlPop: 0, urls: [] };
   global.fetch = async (url) => {
     const u = String(url);
-    if (u.includes("/protocol/popdex")) {
+    if (u.includes("/protocol/popdex-bridge")) {
       count.protocol++;
+      count.urls.push(u);
       if (opts.protocol === "timeout") abort();
       if (opts.protocol === "fail") return okJson("no", opts.protocolStatus || 500);
       return okJson(opts.protocol || chainsProto(60, 40, AT));
+    }
+    if (u.includes("/protocol/popdex")) {
+      count.parent++;
+      count.urls.push(u);
+      return okJson(chainsProto(60, 40 + 60e6, AT));
     }
     if (u.includes("/tvl/popdex")) { count.tvlPop++; return okJson("1"); }
     if (u.includes("/summary/open-interest/popdex")) return okJson({ total24h: LLAMA_OI, totalDataChart: days(LLAMA_OI) });
@@ -264,11 +268,16 @@ function othersOk(body) {
   assert.ok(n.body.tookMs < data.DEADLINE_MS);
   othersOk(n.body);
 
-  // 4) Handler uses the bridge entry and keeps its timestamp.
-  const br = await popRow({ protocol: { chainTvls: { "popdex-bridge": { tvl: [{ date: AT, totalLiquidityUSD: 100 }] }, Ethereum: { tvl: [{ date: AT, totalLiquidityUSD: 9 }] } } } });
-  assert.equal(br.row.userDeposits, 60);
-  assert.equal(br.row.tvl, 100);
-  assert.equal(br.row.tvlAt, new Date(AT * 1000).toISOString());
+  // TVL is /protocol/popdex-bridge. A parent payload whose Morph includes +60M of non-bridge TVL is not requested and not used.
+  assert.equal(n.count.parent, 0);
+  assert.ok(n.count.urls.some(u => u.includes("/protocol/popdex-bridge")));
+  assert.equal(n.count.urls.some(u => /\/protocol\/popdex(?:\?|$)/.test(u)), false);
+  const parentMorph = data.popdexProtocolTvl(chainsProto(60, 40 + 60e6, AT), Date.now());
+  assert.equal(parentMorph.value, 60 + 40 + 60e6);
+  assert.equal(n.row.tvl, 100);
+  assert.equal(n.row.userDeposits, 60);
+  assert.notEqual(n.row.tvl, parentMorph.value);
+  assert.notEqual(n.row.userDeposits, parentMorph.value - 40);
 
   // 1) DefiLlama timeout, 5xx, and non-numeric fields: deposits and the ratio are missing, never 0, never the snapshot.
   const to = await popRow({ protocol: "timeout" });

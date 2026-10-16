@@ -11,7 +11,7 @@
 
 ## 存款与 OI 口径（PopDEX）
 
-- 存款 = 两个桥内 USDT（DefiLlama，取于该点时间）− 协议金库（官方，取于取得时间）。DefiLlama 读 `/protocol/popdex`：有 popdex-bridge 条目就用它的最新点，否则 `chainTvls` 必须恰好是 Arbitrum 与 Morph，再把这两条链的最新点相加。点早于 `POPDEX_TVL_MAX_AGE_SEC`（6 小时）则缺失。悬停同时写出 DefiLlama 点的时间和金库取得时间。
+- 存款 = 两个桥内 USDT（DefiLlama，取于该点时间）− 协议金库（官方，取于取得时间）。DefiLlama 读 `/protocol/popdex-bridge` 自己的 `chainTvls`，必须恰好是 Arbitrum 与 Morph，再把这两条链的最新点相加。点早于 `POPDEX_TVL_MAX_AGE_SEC`（6 小时）则缺失。悬停同时写出 DefiLlama 点的时间和金库取得时间。
 - 协议金库是 `GET https://api.popdex.xyz/api/v1/vaults?vaultType=Protocol` 里每条 `totalEquity × usdExchangeRate` 的和。汇率缺失，或不在 0.95–1.05（`POPDEX_VAULT_RATE_MIN` / `POPDEX_VAULT_RATE_MAX`），则缺失。
 - 存款 ≤ 0、存款 < TVL × `POPDEX_DEPOSIT_MIN_TVL_RATIO`，或金库 > TVL，都显示缺失，并把原因写入 errors（`/popdex/deposits`）。不做绝对值，也不把结果夹成 0。代码不读取 config.json 的 manual.popdex。DefiLlama、金库或 tickers 超时、返回 5xx/429、非 200 或字段不是数字时，存款和 OI/存款都显示缺失，不会显示 0。
 - OI 是官方期货 tickers 里状态为 Trading 的 `openInterest × markPrice` 之和，单边 USDT 名义值，和 24H 交易量共用同一次分页。必须收到全部页，条数等于接口的 total。`openInterest` ≥ 0，`markPrice` > 0，`updatedTime` 不老于 `POPDEX_OI_MAX_AGE_MS`。任一检查失败则整段 OI 缺失，不公布部分和，也不退回 DefiLlama 的日 OI。悬停写明原因。
