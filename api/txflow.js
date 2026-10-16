@@ -141,6 +141,7 @@ async function info(body, signal, opt) {
   }
   throw new Error(last);
 }
+const { rawNum, FULL_WINDOW_HOURS } = require("./num");
 function notional(candles, start7, now) {
   // An empty candle set is missing data. Do not sum it into a $0 total.
   if (!Array.isArray(candles) || candles.length === 0) return null;
@@ -149,17 +150,23 @@ function notional(candles, start7, now) {
   // The candle that contains now-24h is only partly inside the window. Weight it by that fraction.
   const earliest = start - (start % hour);
   const weight = (earliest + hour - start) / hour;
-  let d7 = 0, d24 = 0;
+  let d7 = 0, d24 = 0, n = 0;
+  const seen = new Set();
   for (const c of candles) {
-    const t = +c.t;
-    if (!Number.isFinite(t) || t < start7 || t > now) continue;
-    const o = +c.o, h = +c.h, l = +c.l, cl = +c.c, v = +c.v;
-    if (![o, h, l, cl, v].every(Number.isFinite) || v < 0) return null;
-    const n = v * (o + h + l + cl) / 4;
-    d7 += n;
-    if (t === earliest) d24 += n * weight;
-    else if (t >= start && t <= now) d24 += n;
+    if (!c || typeof c !== "object") return null;
+    const t = rawNum(c.t);
+    if (t == null || t < start7 || t > now) continue;
+    const o = rawNum(c.o), h = rawNum(c.h), l = rawNum(c.l), cl = rawNum(c.c), v = rawNum(c.v);
+    if (o == null || h == null || l == null || cl == null || v == null || v < 0) return null;
+    if (seen.has(t)) continue;
+    seen.add(t);
+    n++;
+    const notion = v * (o + h + l + cl) / 4;
+    d7 += notion;
+    if (t === earliest) d24 += notion * weight;
+    else if (t >= start && t <= now) d24 += notion;
   }
+  if (n < FULL_WINDOW_HOURS) return null;
   return { d7, d24 };
 }
 async function runLimited(jobs, signal) {
@@ -386,4 +393,5 @@ function serve(mode) {
 }
 const handler = serve("24h");
 handler.handler7 = serve("7d");
+handler.notional = notional;
 module.exports = handler;

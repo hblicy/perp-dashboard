@@ -42,6 +42,15 @@ function candle() {
   const t = Math.floor(Date.now() / 3600000) * 3600000 - 2 * 3600000;
   return { t, o: "2", h: "4", l: "2", c: "2", v: "5" };
 }
+function fullCandles() {
+  const hour = 3600000;
+  const now = Date.now();
+  const start = now - 168 * hour;
+  const first = Math.ceil(start / hour) * hour;
+  const out = [];
+  for (let t = first; t <= now; t += hour) out.push({ t, o: "2", h: "4", l: "2", c: "2", v: "5" });
+  return out;
+}
 
 function uni(names) {
   return { universe: names.map((name, i) => ({ name, index: i + 1, delisted: false })) };
@@ -105,7 +114,7 @@ async function run(fn, route) {
 
   const week = await run(handler7, body => {
     if (body.type === "perpMeta") return jsonResponse(200, uni(["BTC"]));
-    if (body.type === "candleSnapshot") return jsonResponse(200, [candle()]);
+    if (body.type === "candleSnapshot") return jsonResponse(200, fullCandles());
     throw new Error("unexpected " + body.type);
   });
   assert.equal(week.outcome, "done");
