@@ -1,5 +1,7 @@
 # Perp DEX 数据看板（Vercel 版）
 
+作者 X：[@conor186](https://x.com/conor186)
+
 - index.html：页面，打开后读取 /api/data，再单独请求 /api/txflow，并在浏览器里补 Entropy 的 7D
 - api/data.js：服务器端函数，汇总 DefiLlama（页面用 OI、手续费；每行仍返回 tvl，供以后做存款分母）、perpsmania、CoinGecko，以及 PopDEX 官方公开行情。正常结果 Vercel CDN 缓存 10 分钟（s-maxage=600），过期后的 1 小时内先返回旧数据，同时在后台更新（stale-while-revalidate=3600）。DefiLlama、perpsmania、CoinGecko、Hyperliquid 每个请求自己 15 秒超时，并和整次 44 秒截止绑在同一个 AbortSignal 上。PopDEX 仍是单次 8 秒。一个源挂起或失败只让它自己的字段空着，并在 errors 里写上这个源；已经成功的行和字段照常返回，不会整表变成空。截止时 errors 仍写明停在哪一路、哪些交易所还挂着，以及 PopDEX 已完成的合约数。24H 已经算完而 7D 还没有时，24H 单独保留。44 秒截止，或 DefiLlama、Hyperliquid、perpsmania 出现超时、5xx、429 时，只缓存 60 秒，不带 stale-while-revalidate。
 - api/txflow.js：只算 TxFlow。最多 3 个并发。24H 和 7D 都有时 CDN 缓存 1 小时，过期后的 1 小时内先返回旧数据（s-maxage=3600, stale-while-revalidate=3600）。24H 已有而 7D 为空时缓存 1 小时，不带 stale-while-revalidate（s-maxage=3600）。24H 为空的失败缓存 5 分钟（s-maxage=300），避免每个访客都把约 468 次请求打到同一出口 IP。合约列表 20 秒内拿不到就直接返回失败，不再干等到 255 秒
@@ -22,4 +24,3 @@
 
 ## 修改交易所或数据
 直接在 GitHub 上编辑 config.json：exchanges 里每项是 {"name","slug"(DefiLlama),"coingecko"(可选)}；可选 "token"（字符串），有值时在交易所名旁边显示小号灰色文字，例如 "token": "HYPE"。token 写成 null 时显示「缺失」，悬停文字写在 "tokenNote"。depositsDisplay 为 "missing" 时，OI/存款格显示缺失。verification 写在备注格子的悬停里。manual 里按 slug 填 userDeposits 和 snapshotAt。备注写在该交易所的 "note"（字符串，空着显示 —），来源写在 "noteSources"（{"label","url"} 数组，显示成小字）。只有 https:// 地址会变成链接；http、javascript、data 和其他地址显示成纯文本。手续费来源同样只接受 https://，并带 rel="noopener noreferrer"。不要写在 fee.note 里，那是手续费悬停说明。备注不参与合计，默认排序仍是 OI。备注列不能排序。例如 "note": "一句话", "noteSources": [{"label": "文档", "url": "https://example.com"}]。Lighter 主行的 DefiLlama 请求用 "llamaSlug": "lighter-perps"（不含 Robinhood Chain）。Lighter 存款用 protocol/lighter 的 currentChainTvls.Ethereum，不用父协议总 TVL。feesDisplay 为 "missing" 或 "na" 时，手续费格显示缺失或不适用。热度里手续费行用手续费比的中位数，改用交易量的行用全部交易所交易量比的中位数。提交后自动重新部署。
-作者 X：@conor186
