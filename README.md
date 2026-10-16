@@ -10,7 +10,7 @@
 
 - 多数交易所：perpsmania，没有则用 CoinGecko。
 - PopDEX：官方公开 API，服务器端取（浏览器没有 CORS）。24H 是全部期货 `turnover24h` 之和，7D 是滚动 168 小时 1H K 线的报价成交额。金额是 USDT。文档没写清单边还是双边，未核实。任何一条无效，或任何一张 K 线取失败，对应的 24H 或 7D 就是缺失（页面显示“缺失”），不会公布少算的合计。
-- TxFlow：24H 是各永续 `dayNtlVlm` 之和。7D 是滚动 168 小时 K 线的基础币成交量乘 OHLC 均价，页面标“近似”。悬停的覆盖比例是恰好 24 小时的 K 线对比官方 `dayNtlVlm`：起始那根跨过边界的小时 K 线只按落在窗口内的分钟比例计入。K 线基础币成交量低于 dayNtlVlm，偏差大约在低 2–8%，而且会波动。K 线阶段失败或超时时，如果每个合约的 24H 都已成功，仍返回精确的 24H，7D 和覆盖比例为空，这个结果 CDN 缓存 1 小时（s-maxage=3600），不带 stale-while-revalidate。24H 或 7D 各自仍是全有或全无，不会公布少算的合计。24H 为空的其它失败缓存 5 分钟。
+- TxFlow：24H 是各永续 `dayNtlVlm` 之和。7D 是滚动 168 小时 K 线的基础币成交量乘 OHLC 均价，页面标“近似”。悬停的覆盖比例是恰好 24 小时的 K 线对比官方 `dayNtlVlm`：起始那根跨过边界的小时 K 线只按落在窗口内的分钟比例计入。K 线基础币成交量低于 dayNtlVlm，偏差大约在低 2–8%，而且会波动。K 线数组是空的时，这一合约的 7D 算失败，不会把空数据记成 $0。K 线阶段失败或超时时，如果每个合约的 24H 都已成功，仍返回精确的 24H，7D 和覆盖比例为空，这个结果 CDN 缓存 1 小时（s-maxage=3600），不带 stale-while-revalidate。24H 或 7D 各自仍是全有或全无，不会公布少算的合计。24H 为空的其它失败缓存 5 分钟。响应里的 timing：`cooldown429WallMs` 是 HTTP 429 把共享冷却截止时间向后推的墙钟毫秒，同一次冷却不按 3 个并发重复加（retry-after 2 秒大约记 2000）。`backoffMs` 是重试间隔，加上第二轮补拉前的等待。`cooldownRemainingAtStartMs` 是这个实例上一次运行留下的冷却还剩多少。日志多一个 `node`（Node 版本），响应 JSON 里没有这个字段。
 - Entropy：24H 用 Hyperliquid `dayNtlVlm`。7D 在浏览器里用 `candleSnapshot` 估算（未下架合约，滚动 168 小时），也标“近似”。
 - 不要把 Hyperliquid 和 Entropy 的交易量相加。Hyperliquid 一行的 24H 来自 perpsmania，很可能已经包含 HIP-3 子所（包括 Entropy）。
 

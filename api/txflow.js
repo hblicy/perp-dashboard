@@ -7,7 +7,8 @@ let cooldownUntil = 0;
 function createTiming(t0) {
   const phases = { perpMeta: null, ctx: null, candles: null };
   const lat = { ctx: [], candles: [] };
-  let open = null, openAt = 0, http429 = 0, http403 = 0, cloudflare1015 = 0, cooldownMs = 0;
+  const cooldownRemainingAtStartMs = Math.max(0, cooldownUntil - t0);
+  let open = null, openAt = 0, http429 = 0, http403 = 0, cloudflare1015 = 0, cooldown429WallMs = 0, backoffMs = 0;
   const pct = (arr, p) => {
     if (!arr.length) return null;
     const s = arr.slice().sort((a, b) => a - b);
@@ -29,10 +30,16 @@ function createTiming(t0) {
     note429() { http429++; },
     note403() { http403++; },
     note1015() { cloudflare1015++; },
-    async pause(ms, signal) {
+    // How far this 429 pushed the shared deadline. Concurrent workers waiting on it are not added again.
+    pushCooldown(next, now) {
+      const base = Math.max(cooldownUntil, now);
+      cooldown429WallMs += Math.max(0, next - base);
+    },
+    async pause(ms, signal) { await sleepAbort(ms, signal); },
+    async backoff(ms, signal) {
       const t = Date.now();
       try { await sleepAbort(ms, signal); }
-      finally { if (ms > 0) cooldownMs += Date.now() - t; }
+      finally { if (ms > 0) backoffMs += Date.now() - t; }
     },
     snapshot() {
       this.end();
@@ -40,9 +47,8 @@ function createTiming(t0) {
         totalMs: Date.now() - t0,
         phases: { perpMeta: phases.perpMeta, ctx: phases.ctx, candles: phases.candles },
         requests: { ctx: bucket(lat.ctx), candles: bucket(lat.candles) },
-        http429, http403, cloudflare1015, cooldownMs,
+        http429, http403, cloudflare1015, cooldown429WallMs, backoffMs, cooldownRemainingAtStartMs,
         concurrency: CONC,
-        node: process.version,
         region: process.env.VERCEL_REGION || null
       };
     }
@@ -106,7 +112,10 @@ async function info(body, signal, opt) {
         if (timing) timing.note429();
         last = "HTTP 429";
         const ra = Math.min(parseFloat(r.headers.get("retry-after")) || 12, 20);
-        cooldownUntil = Math.max(cooldownUntil, Date.now() + ra * 1000);
+        const now = Date.now();
+        const next = now + ra * 1000;
+        if (timing) timing.pushCooldown(next, now);
+        cooldownUntil = Math.max(cooldownUntil, next);
         await r.body?.cancel?.().catch(() => {});
         continue;
       }
@@ -127,12 +136,13 @@ async function info(body, signal, opt) {
       // retrying five times is what stretched a dead upstream out to the 255s deadline.
       if (/abort/i.test(last) && ++aborts >= 2) break;
     }
-    await (timing ? timing.pause(400 * (i + 1), signal) : sleepAbort(400 * (i + 1), signal));
+    await (timing ? timing.backoff(400 * (i + 1), signal) : sleepAbort(400 * (i + 1), signal));
   }
   throw new Error(last);
 }
 function notional(candles, start7, now) {
-  if (!Array.isArray(candles)) return null;
+  // An empty candle set is missing data. Do not sum it into a $0 total.
+  if (!Array.isArray(candles) || candles.length === 0) return null;
   const hour = 3600000;
   const start = now - 24 * hour;
   // The candle that contains now-24h is only partly inside the window. Weight it by that fraction.
@@ -179,7 +189,7 @@ async function settle(coins, jobs, signal, timing) {
   let lastError = first.lastError;
   let missing = coins.filter(c => !have.has(c));
   if (missing.length && missing.length <= 40 && !signal.aborted && !/403|1015/.test(first.lastError)) {
-    try { await (timing ? timing.pause(1500, signal) : sleepAbort(1500, signal)); } catch (e) { /* aborted */ }
+    try { await (timing ? timing.backoff(1500, signal) : sleepAbort(1500, signal)); } catch (e) { /* aborted */ }
     const retry = await runLimited(missing.map(c => jobs[coins.indexOf(c)]), signal);
     take(retry.out);
     if (retry.lastError) lastError = retry.lastError;
@@ -211,7 +221,9 @@ async function load(signal, mark, timing) {
   const now = Date.now(), start7 = now - 168 * 3600 * 1000;
   const ctxJobs = coins.map(coin => async () => {
     const ctx = await info({ type: "activeAssetCtx", coin }, signal, { timing, kind: "ctx" });
-    const v = ctx && +ctx.dayNtlVlm;
+    const raw = ctx && ctx.dayNtlVlm;
+    if (raw == null || (typeof raw === "string" && raw.trim() === "")) throw new Error("bad dayNtlVlm");
+    const v = +raw;
     if (!Number.isFinite(v) || v < 0) throw new Error("bad dayNtlVlm");
     mark("dayNtlVlm", coins.length, "ctx");
     return { coin, value: v };
@@ -256,7 +268,7 @@ module.exports = async (req, res) => {
     const snap = timing.snapshot();
     body.timing = snap;
     const outcome = ok ? "done" : /timeout/i.test(body.error || "") ? "timeout" : "error";
-    console.log(JSON.stringify({ tag: "txflow-timing", ...snap, outcome }));
+    console.log(JSON.stringify({ tag: "txflow-timing", ...snap, node: process.version, outcome }));
     clearTimeout(hard);
     timers.forEach(clearTimeout);
     res.statusCode = 200;
