@@ -1,4 +1,4 @@
-// Vercel 无服务器函数：汇总 DefiLlama + CoinGecko 数据，CDN 缓存 10 分钟
+// Vercel 无服务器函数：汇总 DefiLlama + CoinGecko。正常响应 s-maxage=600 + stale-while-revalidate=3600，最长约 70 分钟。
 const { setMaxListeners } = require("events");
 const CFG = require("../config.json");
 const { rawNum, FULL_WINDOW_HOURS } = require("./num");
@@ -561,7 +561,7 @@ async function vols(rows, signal) {
   const by = Object.fromEntries(lst.map(e => [e.id, e]));
   const R = s => rows.find(r => r.slug === s);
   const todo = CFG.exchanges.filter(ex => ex.coingecko && by[ex.coingecko] && (R(ex.slug).volume24h == null || R(ex.slug).volume7d == null));
-  for (const ex of todo) { const r = R(ex.slug); if (r.volume24h != null) continue; const v = rawNum(by[ex.coingecko].trade_volume_24h_btc); if (v != null) { r.volume24h = v * btc; r.volSource = "coingecko"; } }
+  for (const ex of todo) { const r = R(ex.slug); if (r.volume24h != null) continue; const v = rawNum(by[ex.coingecko].trade_volume_24h_btc); if (v != null) { r.volume24h = v * btc; r.volSource = "coingecko"; r.volume24hApprox = true; } }
   for (let i = 0; i < todo.length; i += 2) { // 每批 2 个并发，避免 CoinGecko 限流
     await Promise.all(todo.slice(i, i + 2).map(async ex => {
       if (R(ex.slug).volume7d != null) return;
@@ -570,7 +570,7 @@ async function vols(rows, signal) {
       try { c = await J(`${G}/exchanges/${ex.coingecko}/volume_chart?days=7`, 3, undefined, signal); }
       finally { inflight.delete(ex.slug); }
       const sum = cgWindowSum(c);
-      if (sum != null) rows.find(r => r.slug === ex.slug).volume7d = sum * btc;
+      if (sum != null) { const row = rows.find(r => r.slug === ex.slug); row.volume7d = sum * btc; row.volume7dApprox = true; row.volume7dMethod = "coingecko"; }
     }));
   }
 }
