@@ -275,12 +275,16 @@ async function oneBody(ex, signal) {
     depositsAt = observedAt;
     if (eth.value != null) { userDeposits = eth.value; tvl = eth.value; depositsSource = "tvl"; }
     else depositsReason = eth.reason;
+  } else if (ex.depositsDisplay === "missing") {
+    depositsReason = "DefiLlama TVL 为空，官方存款接口需要登录";
   } else if (tvl != null) {
     userDeposits = tvl; depositsAt = observedAt; depositsSource = "tvl";
   }
-  return { name: ex.name, slug: ex.slug, coingecko: ex.coingecko || null, oi: O, oiChange7d: N(ch), oiBasis, oiBasisAt, oiSource, volume24h: null, volume7d: null, volSource: null,
+  const site = typeof ex.url === "string" && ex.url.startsWith("https://") ? ex.url : null;
+  return { name: ex.name, slug: ex.slug, url: site, coingecko: ex.coingecko || null, oi: O, oiChange7d: N(ch), oiBasis, oiBasisAt, oiSource, volume24h: null, volume7d: null, volSource: null,
     fees24h, fees7d, feesAsOf: sliced.feesAsOf, fees7dFrom: sliced.fees7dFrom, fees7dTo: sliced.fees7dTo, feesDayFallback, feesDisplay: ex.feesDisplay || null, feeRatio, tvl,
-    userDeposits, depositsAt, depositsSource, depositsReason, oiToDeposits: userDeposits > 0 && oiBasis != null ? oiBasis / userDeposits : null, ...(ex.extra || {}) };
+    userDeposits, depositsAt, depositsSource, depositsReason, depositsDisplay: ex.depositsDisplay || null, oiToDeposits: userDeposits > 0 && oiBasis != null ? oiBasis / userDeposits : null,
+    token: Object.prototype.hasOwnProperty.call(ex, "token") ? ex.token : undefined, tokenNote: ex.tokenNote || null, verification: ex.verification || null, ...(ex.extra || {}) };
 }
 async function pmVols(rows, signal) {
   const d = await J(`https://perpsmania.com/api/perpdex-stats?ts=${Date.now()}`, 2, "perpsmania", signal);
@@ -405,7 +409,7 @@ async function popdexVols(signal) {
 }
 function blankRows() {
   const win = feeSlice([], Date.now());
-  return CFG.exchanges.map(ex => ({ name: ex.name, slug: ex.slug, coingecko: ex.coingecko || null, oi: null, oiChange7d: null, oiBasis: null, oiBasisAt: null, oiSource: null, volume24h: null, volume7d: null, volSource: null, fees24h: null, fees7d: null, feesAsOf: win.feesAsOf, fees7dFrom: win.fees7dFrom, fees7dTo: win.fees7dTo, feesDayFallback: false, feesDisplay: ex.feesDisplay || null, feeRatio: null, tvl: null, userDeposits: null, depositsAt: null, depositsSource: null, depositsReason: null, oiToDeposits: null, heatRatio: null, heatMedian: null, heatRelative: null, heatMetric: null, heatLabel: null, heatHot: false }));
+  return CFG.exchanges.map(ex => ({ name: ex.name, slug: ex.slug, url: typeof ex.url === "string" && ex.url.startsWith("https://") ? ex.url : null, coingecko: ex.coingecko || null, oi: null, oiChange7d: null, oiBasis: null, oiBasisAt: null, oiSource: null, volume24h: null, volume7d: null, volSource: null, fees24h: null, fees7d: null, feesAsOf: win.feesAsOf, fees7dFrom: win.fees7dFrom, fees7dTo: win.fees7dTo, feesDayFallback: false, feesDisplay: ex.feesDisplay || null, feeRatio: null, tvl: null, userDeposits: null, depositsAt: null, depositsSource: null, depositsReason: null, depositsDisplay: ex.depositsDisplay || null, oiToDeposits: null, token: Object.prototype.hasOwnProperty.call(ex, "token") ? ex.token : undefined, tokenNote: ex.tokenNote || null, verification: ex.verification || null, heatRatio: null, heatMedian: null, heatRelative: null, heatMetric: null, heatLabel: null, heatHot: false }));
 }
 function applyPop(rows, pv) {
   const pr = rows && rows.find(r => r.slug === "popdex");
