@@ -160,34 +160,124 @@ function popdexTurnover(tickers) {
   if (bad) return { volume24h: null, symbols, symbolGap, error: "popdex 24h invalid turnover24h" };
   return { volume24h, symbols, symbolGap, error: null };
 }
-// PopDEX 实时 OI：期货 tickers 的 openInterest × markPrice 之和（单边名义值，USDT）。任何一条无效就整体缺失。
-function popdexOi(tickers) {
+// PopDEX 口径阈值。TVL 点、金库汇率、存款占 TVL 的下限、ticker 更新时间都只认这些常量。
+const POPDEX_TVL_MAX_AGE_SEC = 6 * 3600;
+const POPDEX_VAULT_RATE_MIN = 0.95;
+const POPDEX_VAULT_RATE_MAX = 1.05;
+const POPDEX_DEPOSIT_MIN_TVL_RATIO = 0.01;
+const POPDEX_OI_MAX_AGE_MS = 10 * 60 * 1000;
+const POPDEX_CHAINS = ["Arbitrum", "Morph"];
+
+function popdexNum(v) {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+function popdexMs(v) {
+  const n = popdexNum(v);
+  if (n == null || n <= 0) return null;
+  return n < 1e12 ? n * 1000 : n;
+}
+function newestTvlPoint(series) {
+  const list = Array.isArray(series) ? series : (series && Array.isArray(series.tvl) ? series.tvl : null);
+  if (!list) return null;
+  let best = null;
+  for (const p of list) {
+    if (!p || typeof p !== "object") continue;
+    const date = popdexNum(p.date);
+    const value = popdexNum(p.totalLiquidityUSD);
+    if (date == null || value == null) continue;
+    if (!best || date >= best.date) best = { date, value };
+  }
+  return best;
+}
+function popdexBridgeKey(v) {
+  return String(v || "").toLowerCase().replace(/[\s_]+/g, "-") === "popdex-bridge";
+}
+function findPopdexBridge(proto) {
+  if (!proto || typeof proto !== "object") return null;
+  for (const bag of [proto.chainTvls, proto.protocols, proto.breakdown]) {
+    if (!bag || typeof bag !== "object") continue;
+    const items = Array.isArray(bag) ? bag.map((item, i) => [item && (item.slug || item.name || item.module || i), item]) : Object.entries(bag);
+    for (const [k, v] of items) {
+      if (popdexBridgeKey(k) || (v && typeof v === "object" && (popdexBridgeKey(v.slug) || popdexBridgeKey(v.name) || popdexBridgeKey(v.module)))) return v;
+    }
+  }
+  return null;
+}
+// DefiLlama /protocol/popdex：有 popdex-bridge 条目就用它的最新点，否则两条链必须恰好是 Arbitrum 与 Morph。
+function popdexProtocolTvl(proto, nowMs) {
+  const blank = (reason, atSec) => ({ value: null, atSec: atSec == null ? null : atSec, atIso: atSec == null ? null : new Date(atSec * 1000).toISOString(), reason });
+  if (!proto || typeof proto !== "object") return blank("DefiLlama protocol/popdex 取不到");
+  const nowSec = (nowMs == null ? Date.now() : nowMs) / 1000;
+  const bridge = findPopdexBridge(proto);
+  let value = null, atSec = null;
+  if (bridge) {
+    const pt = newestTvlPoint(bridge);
+    if (!pt || !(pt.value > 0)) return blank("popdex-bridge TVL 无效");
+    value = pt.value; atSec = pt.date;
+  } else {
+    const ct = proto.chainTvls;
+    if (!ct || typeof ct !== "object" || Array.isArray(ct)) return blank("protocol/popdex 没有 chainTvls");
+    const keys = Object.keys(ct);
+    if (keys.length !== POPDEX_CHAINS.length || POPDEX_CHAINS.some(name => !Object.prototype.hasOwnProperty.call(ct, name))) return blank("protocol/popdex 的链不是 Arbitrum 与 Morph");
+    let sum = 0, oldest = null;
+    for (const name of POPDEX_CHAINS) {
+      const pt = newestTvlPoint(ct[name]);
+      if (!pt || pt.value < 0) return blank("protocol/popdex 的 " + name + " TVL 无效");
+      sum += pt.value;
+      if (oldest == null || pt.date < oldest) oldest = pt.date;
+    }
+    if (!(sum > 0)) return blank("DefiLlama TVL 取不到或无效");
+    value = sum; atSec = oldest;
+  }
+  if (nowSec - atSec > POPDEX_TVL_MAX_AGE_SEC) return blank("DefiLlama TVL 点超过 6 小时", atSec);
+  return { value, atSec, atIso: new Date(atSec * 1000).toISOString(), reason: null };
+}
+function popdexVaultSum(vaultBody) {
+  if (!vaultBody || String(vaultBody.code) !== "200" || !Array.isArray(vaultBody.data) || !vaultBody.data.length) return { vaultUsd: null, reason: "PopDEX 协议金库取不到" };
+  let vaultUsd = 0;
+  for (const v of vaultBody.data) {
+    if (!v || v.totalEquity == null || v.usdExchangeRate == null) return { vaultUsd: null, reason: "PopDEX 协议金库数值无效" };
+    const eq = popdexNum(v.totalEquity), rate = popdexNum(v.usdExchangeRate);
+    if (eq == null || rate == null || eq < 0) return { vaultUsd: null, reason: "PopDEX 协议金库数值无效" };
+    if (rate < POPDEX_VAULT_RATE_MIN || rate > POPDEX_VAULT_RATE_MAX) return { vaultUsd: null, reason: "PopDEX usdExchangeRate 超出允许范围" };
+    vaultUsd += eq * rate;
+  }
+  return { vaultUsd, reason: null };
+}
+// 存款 = 桥内 TVL − 协议金库。结果不为正、金库大于 TVL，或存款小于 TVL 的最小比例，都缺失。不做绝对值，也不夹成 0。
+function popdexDeposits(tvlPoint, vaultBody) {
+  const vault = popdexVaultSum(vaultBody);
+  if (!tvlPoint || tvlPoint.reason || !(tvlPoint.value > 0)) {
+    return { value: null, vaultUsd: vault.vaultUsd, tvl: null, reason: (tvlPoint && tvlPoint.reason) || "DefiLlama TVL 取不到或无效", pushError: !!(tvlPoint && tvlPoint.reason && tvlPoint.atSec != null) };
+  }
+  if (vault.reason) return { value: null, vaultUsd: null, tvl: tvlPoint.value, reason: vault.reason, pushError: false };
+  const tvl = tvlPoint.value;
+  const dep = tvl - vault.vaultUsd;
+  if (vault.vaultUsd > tvl) return { value: null, vaultUsd: vault.vaultUsd, tvl, reason: "协议金库大于桥内 TVL", pushError: true };
+  if (!Number.isFinite(dep) || dep <= 0) return { value: null, vaultUsd: vault.vaultUsd, tvl, reason: "存款不为正", pushError: true };
+  if (dep < tvl * POPDEX_DEPOSIT_MIN_TVL_RATIO) return { value: null, vaultUsd: vault.vaultUsd, tvl, reason: "存款低于 TVL 的最小比例", pushError: true };
+  return { value: dep, vaultUsd: vault.vaultUsd, tvl, reason: null, pushError: false };
+}
+// 只加 Trading 期货。openInterest ≥ 0、markPrice > 0、updatedTime 够新；任一条不合格则整段缺失，不返回部分和。
+function popdexOi(tickers, nowMs) {
+  const now = nowMs == null ? Date.now() : nowMs;
   let s = 0, n = 0;
   for (const t of tickers || []) {
     if (!t || String(t.category || "").toLowerCase() !== "futures") continue;
+    if (String(t.status || "").toLowerCase() !== "trading") continue;
     n++;
-    const q = Number(t.openInterest), px = Number(t.markPrice);
-    if (t.openInterest == null || t.markPrice == null || !Number.isFinite(q) || !Number.isFinite(px) || q < 0 || px < 0) return { value: null, reason: "popdex tickers 的 openInterest/markPrice 无效" };
+    const q = popdexNum(t.openInterest), px = popdexNum(t.markPrice), ut = popdexMs(t.updatedTime);
+    if (q == null || px == null || q < 0 || !(px > 0)) return { value: null, reason: "popdex tickers 的 openInterest/markPrice 无效" };
+    if (ut == null || ut > now + 60000 || now - ut > POPDEX_OI_MAX_AGE_MS) return { value: null, reason: "popdex tickers 的 updatedTime 过旧或无效" };
     s += q * px;
   }
   if (!n) return { value: null, reason: "popdex tickers 为空" };
   return { value: s, reason: null };
-}
-// PopDEX 存款 = DefiLlama TVL（桥合约里的 USDT）− 官方协议金库净值（totalEquity × usdExchangeRate）。
-// 任一输入取不到、非有限或为负，或结果不为正，都返回缺失，不回退旧快照。
-function popdexDeposits(tvl, vaultBody) {
-  const t = N(tvl);
-  if (t == null || t <= 0) return { value: null, vaultUsd: null, reason: "DefiLlama TVL 取不到或无效" };
-  if (!vaultBody || String(vaultBody.code) !== "200" || !Array.isArray(vaultBody.data) || !vaultBody.data.length) return { value: null, vaultUsd: null, reason: "PopDEX 协议金库取不到" };
-  let vaultUsd = 0;
-  for (const v of vaultBody.data) {
-    const eq = Number(v && v.totalEquity), rate = Number(v && v.usdExchangeRate);
-    if (!v || v.totalEquity == null || v.usdExchangeRate == null || !Number.isFinite(eq) || !Number.isFinite(rate) || eq < 0 || rate <= 0) return { value: null, vaultUsd: null, reason: "PopDEX 协议金库数值无效" };
-    vaultUsd += eq * rate;
-  }
-  const dep = t - vaultUsd;
-  if (!Number.isFinite(dep) || dep <= 0) return { value: null, vaultUsd, reason: "TVL 不大于协议金库，存款无效" };
-  return { value: dep, vaultUsd, reason: null };
 }
 function sumQuoteWindow(candles, start, now) {
   if (!Array.isArray(candles)) return null;
@@ -314,6 +404,7 @@ function applyOi(row, oi) {
     ch = p && p[1] > 0 ? l[1] / p[1] - 1 : null;
   }
   row.oiChange7d = N(ch);
+  if (row.slug === "popdex") return;
   if (row.oiSource === "hyperliquid" || row.oiSource === "popdex") return;
   const latest = newestPoint(oi.totalDataChart);
   const oiBasis = latest ? latest.v : N(oi.total24h);
@@ -340,8 +431,8 @@ function applyFees(row, ex, fe) {
 function settleDeposits(row, ex, ctx) {
   if (ex.hl_dex && ctx.hl === undefined) return;
   if (ex.slug === "lighter" && ctx.proto === undefined) return;
-  if (ex.slug === "popdex" && (ctx.tvl === undefined || ctx.pop === undefined)) return;
-  if (ex.slug !== "lighter" && !ex.hl_dex && ex.depositsDisplay !== "missing" && ctx.tvl === undefined) return;
+  if (ex.slug === "popdex" && (ctx.llama === undefined || ctx.pop === undefined)) return;
+  if (ex.slug !== "lighter" && ex.slug !== "popdex" && !ex.hl_dex && ex.depositsDisplay !== "missing" && ctx.tvl === undefined) return;
   const observedAt = ctx.observedAt;
   let userDeposits = null, depositsAt = null, depositsSource = null, depositsReason = null;
   let tvl = ctx.tvl == null ? null : ctx.tvl;
@@ -352,12 +443,23 @@ function settleDeposits(row, ex, ctx) {
     }
   } else if (ex.slug === "popdex") {
     const v = ctx.pop.vault || {}, tk = ctx.pop.tickers || {};
-    const dep = popdexDeposits(ctx.tvl, v.body);
+    const parsed = popdexProtocolTvl(ctx.llama, Date.now());
+    const dep = popdexDeposits(parsed, v.body);
+    tvl = dep.tvl;
+    row.tvlAt = parsed.atIso || null;
     row.popdexVaultUsd = dep.vaultUsd;
     if (dep.value != null) { userDeposits = dep.value; depositsAt = v.at || observedAt; depositsSource = "tvl-vault"; }
-    else depositsReason = v.error ? "PopDEX 协议金库取不到（" + v.error + "）" : dep.reason;
-    const oi = tk.error ? { value: null } : popdexOi(tk.tickers);
-    if (oi.value != null) { row.oi = oi.value; row.oiBasis = oi.value; row.oiBasisAt = tk.at || observedAt; row.oiSource = "popdex"; }
+    else {
+      depositsReason = v.error ? "PopDEX 协议金库取不到（" + v.error + "）" : dep.reason;
+      if (dep.pushError && dep.reason) ERR.push({ url: "/popdex/deposits", error: dep.reason });
+    }
+    const oi = tk.error ? { value: null, reason: "PopDEX tickers 取不到（" + tk.error + "）" } : popdexOi(tk.tickers, Date.now());
+    if (oi.value != null) {
+      row.oi = oi.value; row.oiBasis = oi.value; row.oiBasisAt = tk.at || observedAt; row.oiSource = "popdex"; row.oiReason = null;
+    } else {
+      row.oi = null; row.oiBasis = null; row.oiBasisAt = null; row.oiSource = null;
+      row.oiReason = oi.reason || "PopDEX tickers 取不到";
+    }
   } else if (ex.slug === "lighter") {
     const eth = lighterDeposit(ctx.proto);
     depositsAt = observedAt;
@@ -384,12 +486,13 @@ async function one(ex, signal, row) {
 async function oneBody(ex, signal, row) {
   const s = encodeURIComponent(ex.llamaSlug || ex.slug);
   const lighter = ex.slug === "lighter";
-  const ctx = { tvl: undefined, hl: undefined, proto: undefined, observedAt: new Date().toISOString() };
+  const ctx = { tvl: undefined, llama: undefined, hl: undefined, proto: undefined, observedAt: new Date().toISOString() };
   const tasks = [
     J(`${L}/summary/open-interest/${s}?excludeTotalDataChartBreakdown=true`, 2, undefined, signal).then(oi => applyOi(row, oi)),
     J(`${L}/summary/fees/${s}?excludeTotalDataChartBreakdown=true`, 2, undefined, signal).then(fe => applyFees(row, ex, fe))
   ];
   if (lighter) tasks.push(J(`${L}/protocol/lighter`, 2, "protocol/lighter", signal).then(proto => { ctx.proto = proto; settleDeposits(row, ex, ctx); }));
+  else if (ex.slug === "popdex") tasks.push(J(`${L}/protocol/popdex`, 2, "protocol/popdex", signal).then(proto => { ctx.llama = proto; settleDeposits(row, ex, ctx); }));
   else tasks.push(J(`${L}/tvl/${s}`, 2, undefined, signal).then(tv => { ctx.tvl = N(tv); settleDeposits(row, ex, ctx); }));
   if (ex.slug === "popdex" && popShared) tasks.push(Promise.all([popShared.vault, popShared.tickers]).then(([vault, tickers]) => { ctx.pop = { vault, tickers }; settleDeposits(row, ex, ctx); }));
   else if (ex.slug === "popdex") ctx.pop = { vault: { error: "not started" }, tickers: { error: "not started" } };
@@ -465,17 +568,22 @@ async function popGet(path, signal) {
 async function popdexTickers(signal) {
   const all = [];
   let cursor = "";
+  let total = null;
   for (let page = 0; page < 20; page++) {
     const q = new URLSearchParams({ category: "Futures", limit: "100" });
     if (cursor) q.set("cursor", cursor);
     const d = await popGet("/api/v1/public/market/tickers?" + q, signal);
     if (!d || String(d.code) !== "200" || !Array.isArray(d.data)) throw new Error("bad tickers");
+    const pageTotal = popdexNum(d.total);
+    if (pageTotal == null || pageTotal < 0 || Math.floor(pageTotal) !== pageTotal) throw new Error("popdex tickers total invalid");
+    if (total == null) total = pageTotal;
+    else if (total !== pageTotal) throw new Error("popdex tickers total changed");
     all.push(...d.data);
-    const total = +d.total;
-    if (!d.data.length || (Number.isFinite(total) && all.length >= total) || d.data.length < (+d.limit || 100)) break;
-    if (!d.cursor || String(d.cursor) === cursor) break;
+    if (all.length >= total) break;
+    if (!d.data.length || !d.cursor || String(d.cursor) === cursor) throw new Error("popdex tickers page incomplete");
     cursor = String(d.cursor);
   }
+  if (all.length !== total) throw new Error("popdex tickers count mismatch");
   return all;
 }
 async function popdex7d(symbols, signal) {
@@ -614,7 +722,13 @@ handler.feeSlice = feeSlice;
 handler.lighterDeposit = lighterDeposit;
 handler.applyHeat = applyHeat;
 handler.popdexDeposits = popdexDeposits;
+handler.popdexProtocolTvl = popdexProtocolTvl;
 handler.popdexOi = popdexOi;
+handler.POPDEX_TVL_MAX_AGE_SEC = POPDEX_TVL_MAX_AGE_SEC;
+handler.POPDEX_VAULT_RATE_MIN = POPDEX_VAULT_RATE_MIN;
+handler.POPDEX_VAULT_RATE_MAX = POPDEX_VAULT_RATE_MAX;
+handler.POPDEX_DEPOSIT_MIN_TVL_RATIO = POPDEX_DEPOSIT_MIN_TVL_RATIO;
+handler.POPDEX_OI_MAX_AGE_MS = POPDEX_OI_MAX_AGE_MS;
 handler.J = J;
 handler.REQ_MS = REQ_MS;
 handler.DEADLINE_MS = DEADLINE_MS;
