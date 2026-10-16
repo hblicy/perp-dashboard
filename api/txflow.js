@@ -1,5 +1,6 @@
 // TxFlow 永续成交量。官方文档未公开，这是 app.txflow.com 用的公开 info 接口，无 key。
-// 24h = Σ activeAssetCtx.dayNtlVlm（精确）。7d = 滚动 168h 的 1h K 线 v×(o+h+l+c)/4（近似）。
+// 24h = webData2.assetCtxs 里 dayNtlVlm 之和，只加 perpMeta 里未下架合约的 instrumentId。
+// 对不上整表时才退回逐个 activeAssetCtx。7d 在 /api/txflow7d，不在每小时的 24h 请求里。
 // 最多 3 个并发。失败就返回 null，不编造数字，也不影响 /api/data。
 const INFO = "https://api.txflow.com/info";
 const CONC = 3;
@@ -206,57 +207,119 @@ async function settle(coins, jobs, signal, timing) {
   }
   return { value, day: hasDay ? day : null, error: "" };
 }
-async function load(signal, mark, timing) {
+function parseDay(raw) {
+  if (raw == null || (typeof raw === "string" && raw.trim() === "")) return null;
+  const v = +raw;
+  if (!Number.isFinite(v) || v < 0) return null;
+  return v;
+}
+async function loadMeta(signal, mark, timing) {
   mark("perpMeta");
   timing.begin("perpMeta");
-  // Two 8s attempts. The handler also ends the HTTP response at 20s if this is still running,
-  // because a timer + res.end is what actually returned on Vercel; abort unblocking the socket is not proven there.
+  // Two 8s attempts. The handler also ends the HTTP response at 20s after any leftover
+  // 429 cooldown, because a timer + res.end is what actually returned on Vercel.
   const meta = await info({ type: "perpMeta", dex: "" }, signal, { tries: 2, ms: 8000, timing });
   const uni = meta && Array.isArray(meta.universe) ? meta.universe : null;
   if (!uni) throw new Error("bad perpMeta");
-  const coins = uni.filter(u => u && u.name && u.delisted !== true).map(u => u.name);
-  if (!coins.length) throw new Error("no perps");
-  timing.begin("ctx");
-  mark("dayNtlVlm", coins.length);
-  const now = Date.now(), start7 = now - 168 * 3600 * 1000;
-  const ctxJobs = coins.map(coin => async () => {
+  const rows = uni.filter(u => u && u.name && u.delisted !== true);
+  if (!rows.length) throw new Error("no perps");
+  return rows;
+}
+async function bulk24(rows, signal, timing) {
+  let wd;
+  try {
+    wd = await info({ type: "webData2" }, signal, { tries: 2, ms: 8000, timing, kind: "ctx" });
+  } catch (e) {
+    if ((signal && signal.aborted) || (e && e.message === "aborted")) throw e;
+    return null;
+  }
+  const ctxs = wd && Array.isArray(wd.assetCtxs) ? wd.assetCtxs : null;
+  if (!ctxs) return null;
+  const byId = new Map();
+  for (const c of ctxs) {
+    if (!c || c.instrumentId == null || byId.has(c.instrumentId)) continue;
+    byId.set(c.instrumentId, c);
+  }
+  let sum = 0;
+  for (const u of rows) {
+    const c = byId.get(u.index);
+    if (!c) return null;
+    const v = parseDay(c.dayNtlVlm);
+    if (v == null) return null;
+    sum += v;
+  }
+  return sum;
+}
+async function perCoin24(rows, signal, mark, timing) {
+  const coins = rows.map(u => u.name);
+  const jobs = coins.map(coin => async () => {
     const ctx = await info({ type: "activeAssetCtx", coin }, signal, { timing, kind: "ctx" });
-    const raw = ctx && ctx.dayNtlVlm;
-    if (raw == null || (typeof raw === "string" && raw.trim() === "")) throw new Error("bad dayNtlVlm");
-    const v = +raw;
-    if (!Number.isFinite(v) || v < 0) throw new Error("bad dayNtlVlm");
+    const v = parseDay(ctx && ctx.dayNtlVlm);
+    if (v == null) throw new Error("bad dayNtlVlm");
     mark("dayNtlVlm", coins.length, "ctx");
     return { coin, value: v };
   });
-  const candleJobs = coins.map(coin => async () => {
-    const candles = await info({ type: "candleSnapshot", req: { coin, interval: "1h", startTime: start7, endTime: now } }, signal, { timing, kind: "candles" });
-    const v = notional(candles, start7, now);
-    if (v == null) throw new Error("bad candles");
-    mark("candles", coins.length, "candle");
-    return { coin, value: v.d7, day: v.d24 };
-  });
-  const ctx = await settle(coins, ctxJobs, signal, timing);
-  // Full 24h sum only. A later candle timeout must not publish a partial dayNtlVlm.
+  return settle(coins, jobs, signal, timing);
+}
+async function load(signal, mark, timing, mode) {
+  const rows = await loadMeta(signal, mark, timing);
+  const coins = rows.map(u => u.name);
+  if (mode === "7d") {
+    const now = Date.now(), start7 = now - 168 * 3600 * 1000;
+    mark("candles", coins.length);
+    timing.begin("candles");
+    const candleJobs = coins.map(coin => async () => {
+      const candles = await info({ type: "candleSnapshot", req: { coin, interval: "1h", startTime: start7, endTime: now } }, signal, { timing, kind: "candles" });
+      const v = notional(candles, start7, now);
+      if (v == null) throw new Error("bad candles");
+      mark("candles", coins.length, "candle");
+      return { coin, value: v.d7, day: v.d24 };
+    });
+    const cd = await settle(coins, candleJobs, signal, timing);
+    timing.end();
+    const phaseName = cd.value == null ? "candles" : "done";
+    const raw = cd.value == null ? (cd.error || "7d failed") : null;
+    return {
+      coins: coins.length,
+      volume24h: null, volume7d: cd.value, candle24h: cd.day, coverage24h: null,
+      phase: phaseName,
+      error: raw == null ? null : phaseName + ": " + raw
+    };
+  }
+  timing.begin("ctx");
+  mark("dayNtlVlm", coins.length);
+  const bulk = await bulk24(rows, signal, timing);
+  if (bulk != null) {
+    mark("dayNtlVlm", coins.length, "exact24", bulk);
+    timing.end();
+    return { coins: coins.length, volume24h: bulk, volume7d: null, candle24h: null, coverage24h: null, phase: "done", error: null };
+  }
+  const ctx = await perCoin24(rows, signal, mark, timing);
   if (ctx.value != null) mark("dayNtlVlm", coins.length, "exact24", ctx.value);
-  mark("candles", coins.length);
-  const blocked = ctx.value == null && /403|1015|abort|timeout/i.test(ctx.error || "");
-  const skipCandles = blocked || (ctx.value == null && signal.aborted);
-  if (!skipCandles) timing.begin("candles");
-  const cd = skipCandles
-    ? { value: null, day: null, error: ctx.error || "timeout" }
-    : await settle(coins, candleJobs, signal, timing);
-  if (!skipCandles) timing.end();
-  const coverage24h = ctx.value > 0 && cd.day != null ? cd.day / ctx.value : null;
-  const phaseName = ctx.value == null ? "dayNtlVlm" : cd.value == null ? "candles" : "done";
-  const raw = ctx.value == null ? (ctx.error || "24h failed") : cd.value == null ? (cd.error || "7d failed") : null;
+  timing.end();
+  const phaseName = ctx.value == null ? "dayNtlVlm" : "done";
+  const raw = ctx.value == null ? (ctx.error || "24h failed") : null;
   return {
     coins: coins.length,
-    volume24h: ctx.value, volume7d: cd.value, coverage24h,
+    volume24h: ctx.value, volume7d: null, candle24h: null, coverage24h: null,
     phase: phaseName,
     error: raw == null ? null : phaseName + ": " + raw
   };
 }
-module.exports = async (req, res) => {
+const HARD_MS = 255000;
+const META_MS = 20000;
+function cacheControl(mode, body) {
+  if (mode === "7d") {
+    return body.volume7d != null
+      ? "public, max-age=0, s-maxage=21600, stale-while-revalidate=21600"
+      : "public, max-age=0, s-maxage=300";
+  }
+  return body.volume24h != null
+    ? "public, max-age=0, s-maxage=3600, stale-while-revalidate=3600"
+    : "public, max-age=0, s-maxage=300";
+}
+function serve(mode) {
+  return async (req, res) => {
   const t0 = Date.now();
   const timing = createTiming(t0);
   const ac = new AbortController();
@@ -273,26 +336,17 @@ module.exports = async (req, res) => {
     timers.forEach(clearTimeout);
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json; charset=utf-8");
-    // Both volumes (including 0): 1h plus stale-while-revalidate.
-    // Exact 24h kept after the candle phase failed: 1h, no stale-while-revalidate.
-    // 24h null: 5 minutes.
-    const cache = body.volume24h != null && body.volume7d != null
-      ? "public, max-age=0, s-maxage=3600, stale-while-revalidate=3600"
-      : body.volume24h != null
-        ? "public, max-age=0, s-maxage=3600"
-        : "public, max-age=0, s-maxage=300";
-    res.setHeader("Cache-Control", cache);
+    res.setHeader("Cache-Control", cacheControl(mode, body));
     res.end(JSON.stringify(body));
   };
   const fail = (error) => {
-    // Candles timed out after every coin's dayNtlVlm succeeded: keep that exact 24h.
-    // 7d stays null. finish() caches that body for 1 hour without stale-while-revalidate.
-    // A body with 24h null stays on the 5-minute cache. outcome stays timeout or error.
-    const keep24 = phase === "candles" && exact24h != null;
+    // A finished 24h sum is kept if the handler dies in that phase. 7d stays null here.
+    // Missing 24h or 7d is null, never 0. outcome stays timeout or error.
+    const keep24 = mode === "24h" && phase === "dayNtlVlm" && exact24h != null;
     const msg = error || "timeout";
     finish({
       slug: "txflow-perps", fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0,
-      coins: knownCoins, phase, volume24h: keep24 ? exact24h : null, volume7d: null, coverage24h: null, volume7dApprox: false, error: msg
+      coins: knownCoins, phase, volume24h: keep24 ? exact24h : null, volume7d: null, candle24h: null, coverage24h: null, volume7dApprox: false, error: msg
     }, false);
   };
   const arm = (ms, check) => timers.push(setTimeout(() => {
@@ -302,13 +356,15 @@ module.exports = async (req, res) => {
     fail(phase + " timeout" + (knownCoins ? " " + done + "/" + knownCoins : ""));
   }, ms));
   // These call res.end themselves. They do not wait for a hung socket to abort.
-  arm(20000, () => phase === "perpMeta");
+  // The 20s coin-list budget starts after a leftover 429 cooldown, and still cannot outlive the 255s cutoff.
+  const leftoverMs = Math.max(0, cooldownUntil - Date.now());
+  arm(Math.min(HARD_MS, leftoverMs + META_MS), () => phase === "perpMeta");
   arm(60000, () => phase === "dayNtlVlm" && !anyCtx);
   hard = setTimeout(() => {
     ac.abort();
     const done = phase === "candles" ? candleDone : ctxDone;
     fail(phase + " timeout" + (knownCoins ? " " + done + "/" + knownCoins : ""));
-  }, 255000);
+  }, HARD_MS);
   const mark = (next, coins, kind, value) => {
     phase = next;
     if (coins) knownCoins = coins;
@@ -317,13 +373,17 @@ module.exports = async (req, res) => {
     if (kind === "exact24") exact24h = value;
   };
   try {
-    const body = await load(ac.signal, mark, timing);
-    const ok = body.volume24h != null && body.volume7d != null;
+    const body = await load(ac.signal, mark, timing, mode);
+    const ok = mode === "7d" ? body.volume7d != null : body.volume24h != null;
     finish({
       slug: "txflow-perps", fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0,
       coins: body.coins, phase: ok ? "done" : (body.phase || phase), volume24h: body.volume24h, volume7d: body.volume7d,
-      coverage24h: body.coverage24h, volume7dApprox: body.volume7d != null,
+      candle24h: body.candle24h, coverage24h: body.coverage24h, volume7dApprox: body.volume7d != null,
       error: ok ? null : (body.error || "missing")
     }, ok);
   } catch (e) { fail(String(e && e.message || e)); }
-};
+  };
+}
+const handler = serve("24h");
+handler.handler7 = serve("7d");
+module.exports = handler;

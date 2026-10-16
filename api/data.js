@@ -179,7 +179,7 @@ let inflightReq = new Set();
 let badUpstream = false;
 function markIfDegraded(url, statusText) {
   const u = String(url);
-  if (!u.includes("llama.fi") && !u.includes("perpsmania.com") && !u.includes("hyperliquid.xyz")) return;
+  if (!u.includes("llama.fi") && !u.includes("perpsmania.com") && !u.includes("hyperliquid.xyz") && !u.includes("coingecko.com") && !u.includes("popdex.xyz")) return;
   const s = String(statusText);
   if (s === "timeout" || s === "HTTP 429" || /^HTTP 5/.test(s)) badUpstream = true;
 }
@@ -407,14 +407,19 @@ async function popGet(path, signal) {
       }, 8000, signal);
       if (r.status === 429) {
         last = "HTTP 429";
+        markIfDegraded(url, last);
         await sleepAbort(Math.min(parseFloat(r.headers.get("retry-after")) || 2, 8) * 1000, signal);
         continue;
       }
-      if (!r.ok) { last = "HTTP " + r.status; if (r.status < 500) break; }
-      else return await r.json();
+      if (!r.ok) {
+        last = "HTTP " + r.status;
+        if (r.status >= 500) markIfDegraded(url, last);
+        if (r.status < 500) break;
+      } else return await r.json();
     } catch (e) {
       if (signal && signal.aborted) throw e;
-      last = String(e && e.message || e);
+      last = ownTimeout(e, signal) ? "timeout" : String(e && e.message || e);
+      if (last === "timeout") markIfDegraded(url, last);
     }
     await sleepAbort(300 * (i + 1), signal);
   }
