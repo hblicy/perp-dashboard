@@ -6,12 +6,17 @@ th{color:#a1a1aa;cursor:pointer;user-select:none;background:#111113}th:first-chi
 .tablewrap{overflow-x:auto;max-width:100%}
 th.note,td.note{white-space:normal;text-align:left;vertical-align:top}
 .notebody{width:9rem;min-width:9rem;max-width:9rem;white-space:normal;overflow-wrap:anywhere;font-size:12px;line-height:1.35}
-.cpph{display:inline-block;width:6.5rem;white-space:normal;line-height:1.25;vertical-align:bottom}
+th.cpp,td.cpp{white-space:normal;text-align:left;vertical-align:top}
+.cpph,.cppv{display:inline-block;width:8rem;max-width:8rem;white-space:normal;overflow-wrap:anywhere;line-height:1.3;vertical-align:bottom}
+.cppv{font-size:12px}
+.cppmiss{color:#71717a}
+.notesrc{margin-top:3px}
+.notesrc a{display:inline-block;margin:2px 6px 0 0;color:#93c5fd;font-size:11px;line-height:1.3;text-decoration:underline dotted}
 .est{display:inline-block;margin-left:4px;padding:0 4px;border:1px solid #3f3f46;border-radius:999px;color:#a1a1aa;font-size:10px;line-height:1.6;vertical-align:1px}
 .cppsrc{display:none}
-.cpptip{position:fixed;z-index:30;max-width:18rem;background:#18181b;color:#e4e4e7;border:1px solid #3f3f46;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.45;text-align:left;white-space:normal;overflow-wrap:anywhere;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.cpptip{position:fixed;z-index:30;max-width:22rem;background:#18181b;color:#e4e4e7;border:1px solid #3f3f46;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.45;text-align:left;white-space:normal;overflow-wrap:anywhere;box-shadow:0 8px 24px rgba(0,0,0,.45)}
 .cpptip a{color:#93c5fd}
-@media(max-width:640px){body{margin:12px}.notebody{width:7.5rem;min-width:7.5rem;max-width:7.5rem}.cpph{width:5.5rem}}
+@media(max-width:640px){body{margin:12px}.notebody{width:7.5rem;min-width:7.5rem;max-width:7.5rem}.cpph,.cppv{width:6.5rem;max-width:6.5rem}}
 tr:hover td{background:#141417}.pos{color:#4ade80}.neg{color:#f87171}.muted{color:#71717a;font-size:12px}
 </style></head><body><h1>Perp DEX 数据看板</h1>
 <div class="muted" id="meta">加载中…</div><br><div class="tablewrap"><table><thead><tr id="hd"></tr></thead><tbody id="bd"></tbody></table></div>
@@ -23,14 +28,13 @@ let rows=[],sk="oi",sd=-1;
 const f$=v=>{if(v==null)return"—";const a=Math.abs(v),n=(x,d)=>x.toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});return a>=1e9?"$"+n(v/1e9,2)+"B":a>=1e6?"$"+n(v/1e6,1)+"M":a>=1e3?"$"+n(v/1e3,1)+"k":"$"+n(v,0)};
 const esc=x=>String(x).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
 function approxTip(r){if(r.slug!="txflow-perps")return "滚动 168 小时，K 线成交量 × OHLC 均价估算";if(r.volCoverage!=null&&isFinite(r.volCoverage)){const p=(r.volCoverage*100).toFixed(1),gap=(1-r.volCoverage)*100,dir=gap>=0?"约低 "+gap.toFixed(1)+"%":"约高 "+(-gap).toFixed(1)+"%";return "估算。恰好 24 小时的 K 线覆盖官方 dayNtlVlm 的 "+p+"%（"+dir+"，会波动）。起始那根跨过 24 小时边界的 K 线只按落在窗口内的分钟比例计入。K 线基础币成交量低于 dayNtlVlm"}return "估算。约低 2–8%，会波动。K 线基础币成交量低于 dayNtlVlm"}
-function noteCell(r){const t=r.note==null?"":String(r.note).trim();const u=r.noteUrl==null?"":String(r.noteUrl).trim();const body=!t?"—":(/^https?:\/\//i.test(u)?`<a href="${esc(u)}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline dotted">${esc(t)}</a>`:esc(t));return `<div class="notebody">${body}</div>`}
-function numOrNull(v){const n=typeof v==="number"?v:(typeof v==="string"&&v.trim()!==""?Number(v):NaN);return Number.isFinite(n)?n:null}
-function fmtN(v){return v.toLocaleString("en-US",{maximumFractionDigits:Math.abs(v)>=100?1:4})}
-function cppShown(p){if(!p||typeof p!=="object")return null;const lo=numOrNull(p.low),hi=numOrNull(p.high),md=numOrNull(p.median);let text=lo!=null&&hi!=null?fmtN(lo)+"–"+fmtN(hi):md!=null?fmtN(md):null;if(text==null)return null;const unit=p.unit==null?"":String(p.unit).trim();if(unit)text+=" "+unit;return text}
-function cppSort(p){if(!p||typeof p!=="object")return null;const lo=numOrNull(p.low),hi=numOrNull(p.high),md=numOrNull(p.median);return lo!=null&&hi!=null?lo:md}
-function cppLinks(list){if(!Array.isArray(list)||!list.length)return "—";return list.map(u=>{const s=String(u==null?"":u).trim();if(!s)return "";return /^https?:\/\//i.test(s)?`<a href="${esc(s)}" target="_blank" rel="noopener noreferrer">${esc(s)}</a>`:esc(s)}).filter(Boolean).join("<br>")||"—"}
-function cppTip(p){const samples=p.samples==null||String(p.samples).trim()===""?"—":esc(p.samples);const date=p.date==null||String(p.date).trim()===""?"—":esc(p.date);return `样本数：${samples}<br>日期：${date}<br>来源：${cppLinks(p.sources)}`}
-function cppCell(r){const text=cppShown(r.costPerPoint);if(text==null)return "—";return `<span class="cppv">${esc(text)} <span class="est">社区估算</span></span><span class="cppsrc">${cppTip(r.costPerPoint)}</span>`}
+function linkItems(list){if(!Array.isArray(list))return [];return list.map(s=>{if(!s||typeof s!=="object")return "";const label=s.label==null?"":String(s.label).trim();const url=s.url==null?"":String(s.url).trim();if(!label&&!url)return "";const text=esc(label||url);return /^https?:\/\//i.test(url)?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${text}</a>`:text}).filter(Boolean)}
+function noteCell(r){const t=r.note==null?"":String(r.note).trim();const links=linkItems(r.noteSources);if(!t&&!links.length)return `<div class="notebody">—</div>`;const src=links.length?`<div class="notesrc">${links.join("")}</div>`:"";return `<div class="notebody">${t?esc(t):""}${src}</div>`}
+function numOrNull(v){const n=typeof v==="number"?v:(typeof v==="string"&&String(v).trim()!==""?Number(v):NaN);return Number.isFinite(n)?n:null}
+function cppShown(p){if(!p||typeof p!=="object"||p.display==null)return null;const d=String(p.display).trim();return d||null}
+function cppSort(p){const d=cppShown(p);const n=p&&numOrNull(p.samples);return d&&n>0?d:null}
+function cppTip(p){const samples=p.samples==null||p.samples===""?"—":esc(p.samples);const date=p.date==null||String(p.date).trim()===""?"—":esc(p.date);const basis=p.basis==null||String(p.basis).trim()===""?"—":esc(p.basis);const ref=p.referral?"<br>含带邀请来源":"";const links=linkItems(p.sources);return `样本数：${samples}<br>日期：${date}<br>口径：${basis}${ref}<br>来源：${links.length?links.join("<br>"):"—"}`}
+function cppCell(r){const p=r.costPerPoint;const text=cppShown(p);if(!text)return "—";const plain=text==="缺失"||text==="已跳过";const tag=numOrNull(p.samples)>0?` <span class="est">社区估算</span>`:"";return `<span class="cppv${plain?" cppmiss":""}">${esc(text)}${tag}</span><span class="cppsrc">${cppTip(p)}</span>`}
 function cell(c,r){const v=r[c[0]];if(c[2]=="s")return v;if(c[2]=="fee"){if(!v||!v.maker)return"—";return `<a href="${esc(v.source)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline dotted" title="${esc(v.note+"\n来源："+v.source+"\n截至："+v.asOf)}">${esc(v.maker)} / ${esc(v.taker)}</a>`}if(c[2]=="note")return noteCell(r);if(c[2]=="cpp")return cppCell(r);if((c[0]=="volume24h"||c[0]=="volume7d")&&v==null&&r.slug=="popdex")return "缺失";if((c[0]=="volume24h"||c[0]=="volume7d")&&v==null&&r.slug=="txflow-perps"&&r.txState)return r.txState=="pending"?"…":"缺失";if(v==null)return"—";if(c[2]=="%")return`<span class="${v>=0?"pos":"neg"}">${v>=0?"+":""}${(v*100).toFixed(1)}%</span>`;if(c[2]=="x")return v.toFixed(2)+"x"+(r.depositsAt?` <span class=muted>(${r.depositsAt})</span>`:"");if(c[0]=="volume7d"&&r.volume7dApprox)return f$(v)+` <span style="color:#fbbf24;font-size:11px" title="${esc(approxTip(r))}">近似</span>`;return f$(v)}
 function colCls(c){return c[2]=="note"?" class=note":c[2]=="cpp"?" class=cpp":""}
 function draw(){const tip=document.querySelector(".cpptip");if(tip)tip.hidden=true;document.getElementById("hd").innerHTML=COLS.map(c=>`<th data-k="${c[0]}"${colCls(c)}>${c[2]=="cpp"?`<span class=cpph>${c[1]}${sk==c[0]?(sd>0?" ▲":" ▼"):""}</span>`:c[1]+(sk==c[0]?(sd>0?" ▲":" ▼"):"")}</th>`).join("");
@@ -74,7 +78,7 @@ function txflow(){const row=()=>rows.find(x=>x.slug=="txflow-perps");const mark=
  if(d&&d.volume7d!=null&&r.volume7d==null){r.volume7d=d.volume7d;r.volume7dApprox=true}if(d&&d.coverage24h!=null&&isFinite(+d.coverage24h))r.volCoverage=+d.coverage24h
  if(!d||d.volume24h==null||d.volume7d==null)r.txState="missing";
 }catch(e){const r=row();if(r)r.txState="missing"}finally{txFlight=null;draw()}})()}
-async function enrich(){const c=await cfgx();for(const r of rows){const e=(c.exchanges||[]).find(x=>x.slug==r.slug);if(e){if(e.fee)r.fee=e.fee;if(e.hl_dex)r.hl_dex=e.hl_dex;r.note=e.note||"";if(e.noteUrl)r.noteUrl=e.noteUrl;r.costPerPoint=e.costPerPoint&&typeof e.costPerPoint==="object"?e.costPerPoint:null}}draw();hip3()}
+async function enrich(){const c=await cfgx();for(const r of rows){const e=(c.exchanges||[]).find(x=>x.slug==r.slug);if(e){if(e.fee)r.fee=e.fee;if(e.hl_dex)r.hl_dex=e.hl_dex;r.note=e.note||"";r.noteSources=Array.isArray(e.noteSources)?e.noteSources:[];r.costPerPoint=e.costPerPoint&&typeof e.costPerPoint==="object"?e.costPerPoint:null}}draw();hip3()}
 (function(){const tip=document.createElement("div");tip.className="cpptip";tip.hidden=true;document.body.appendChild(tip);const place=td=>{const src=td.querySelector(".cppsrc");if(!src){tip.hidden=true;return}tip.innerHTML=src.innerHTML;tip.hidden=false;const r=td.getBoundingClientRect(),tw=tip.offsetWidth,th=tip.offsetHeight;let left=Math.max(8,Math.min(r.left,innerWidth-tw-8)),top=r.bottom+6;if(top+th>innerHeight-8)top=Math.max(8,r.top-th-6);tip.style.left=left+"px";tip.style.top=top+"px"};document.querySelector("table").addEventListener("mouseover",e=>{const td=e.target.closest&&e.target.closest("td.cpp");if(td)place(td)});document.querySelector("table").addEventListener("mouseout",e=>{const td=e.target.closest&&e.target.closest("td.cpp");if(!td)return;const to=e.relatedTarget;if(to&&(td.contains(to)||tip.contains(to)))return;tip.hidden=true});tip.addEventListener("mouseleave",()=>{tip.hidden=true})})();
 function show(d){rows=d.rows;document.getElementById("meta").textContent="更新时间："+new Date(d.fetchedAt).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai"})+"（北京时间）"+(SNAP?"｜静态快照":"｜服务器缓存 10 分钟，页面每 10 分钟自动刷新");draw();fillVol();enrich();txflow()}
 async function load(){try{show(await (await fetch("/api/data",{cache:"no-store"})).json())}catch(e){document.getElementById("meta").textContent="加载失败："+e}}
