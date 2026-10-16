@@ -459,6 +459,64 @@
         "source": "https://docs.pacifica.fi/trading-on-pacifica/trading-fees",
         "asOf": "2026-10-14"
       }
+    },
+    {
+      "name": "Ondo Perps",
+      "token": null,
+      "tokenNote": "无独立代币信息；ONDO 是 Ondo DAO 治理代币（Ondo Foundation 子公司 2022 年发售），也是 Ondo Perps 上的一个永续品种，不是 Ondo Perps 的代币；Ondo Perps 运营主体为 Ondo Global (Panama) Inc.；积分为 Ondo Points（兑换方式未公布）",
+      "slug": "ondo-perps",
+      "url": "https://ondoperps.xyz",
+      "feesDisplay": "missing",
+      "depositsDisplay": "missing",
+      "coingecko": "ondo-perps",
+      "perpsmania": "ondo",
+      "note": "未见独立代币；周500万Ondo Points兑换未公布；奖励多为USDC",
+      "verification": "部分核实（Ondo Points 怎么兑换：缺失；周 $175K USDC 池：官方 8/25 称 12 周计划再延长 6 周，按 7/7 上线推算约 11 月上旬到期，确切结束日缺失；9/30 以后官方 X 没再提周 $175K 和 500 万分）",
+      "noteSources": [
+        {
+          "label": "@OndoPerps 7/23 Ondo Points 上线",
+          "url": "https://x.com/OndoPerps/status/2080110863436894431"
+        },
+        {
+          "label": "@OndoFoundation 7/23",
+          "url": "https://x.com/OndoFoundation/status/2080110707388150043"
+        },
+        {
+          "label": "@OndoPerps 8/25 USDC 计划延长 6 周",
+          "url": "https://x.com/OndoPerps/status/2092306853036224919"
+        },
+        {
+          "label": "@OndoPerps 9/30（北京时间 10/1 02:38）最近一次官方提及周 $175K USDC + 500 万分",
+          "url": "https://x.com/OndoPerps/status/2105366773008634272"
+        },
+        {
+          "label": "Ondo Foundation 博客：4/1 前积分兑 USDC",
+          "url": "https://blog.ondo.foundation/ondo-points-rewards-are-now-available-to-claim/"
+        },
+        {
+          "label": "Ondo Perps 文档 Fees",
+          "url": "https://docs.ondoperps.xyz/fees"
+        },
+        {
+          "label": "Terms of Use 第 27 条",
+          "url": "https://ondoperps.xyz/legal/terms-of-use"
+        }
+      ],
+      "costPerPoint": {
+        "display": "缺失",
+        "samples": 0,
+        "date": null,
+        "basis": "当前周没有带成本的样本；另有 3 条仅参考，全部带邀请",
+        "referral": false,
+        "sources": []
+      },
+      "fee": {
+        "maker": "0.01%",
+        "taker": "0.025%",
+        "note": "目前促销 0.01% / 0.025%（原 0.02% / 0.05%）",
+        "source": "https://docs.ondoperps.xyz/fees",
+        "asOf": "2026-10-16"
+      }
     }
   ],
   "manual": {
