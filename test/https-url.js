@@ -49,7 +49,7 @@ const draftNotes = {
   arcus: "S1阶段，周25万分，周四分发",
   popdex: "无积分计划",
   nado: "S2阶段，周30万–95万分，分发日未公布",
-  bulk: "S1阶段，周积分未公布，分发日未公布",
+  bulk: "S1阶段，周积分未公布，周六分发",
   risex: "S1阶段，周20万分，周二分发",
   variational: "阶段未公布，周15万分，周五分发",
   qfex: "无积分计划",
@@ -70,7 +70,7 @@ assert.equal(risex.note.includes("呸"), false);
 assert.equal(risex.note.includes("呐"), false);
 assert.equal(risex.costPerPoint, undefined);
 
-assert.equal(by("bulk").note, "S1阶段，周积分未公布，分发日未公布");
+assert.equal(by("bulk").note, "S1阶段，周积分未公布，周六分发");
 assert.equal(by("bulk").noteSources, undefined);
 assert.equal(cfg.exchanges.some(e => e.noteSources), false);
 assert.equal(by("bulk").fee.source, "https://docs.bulk.trade/bulk-exchange/fees");

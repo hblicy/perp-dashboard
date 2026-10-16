@@ -91,7 +91,7 @@
       "slug": "bulk",
       "coingecko": "bulk",
       "perpsmania": "bulk",
-      "note": "S1阶段，周积分未公布，分发日未公布",
+      "note": "S1阶段，周积分未公布，周六分发",
       "fee": {
         "maker": "0%",
         "taker": "0.035%",
