@@ -114,12 +114,15 @@ assert.equal(volHeat.includes("流出"), false);
 assert.equal(volHeat.includes(">热<"), false);
 assert.equal(volHeat.includes("OI 7日"), false);
 assert.equal(volHeat.includes("升温"), true);
+assert.equal(volHeat.includes("class=pos"), true);
 const feeHeat = api.heatCell({ heatLabel: "持平", heatRelative: 1, heatMetric: "fees", heatRatio: 2, heatMedian: 3, oiChange7d: -0.15 });
 assert.equal(feeHeat.includes(">量<"), false);
+assert.equal(feeHeat.includes("class=muted"), true);
 assert.equal(feeHeat.includes("流出"), false);
 assert.equal(feeHeat.includes(">热<"), false);
 const flat = api.heatCell({ heatLabel: "降温", heatRelative: 0.5, heatMetric: "fees", heatRatio: 1, heatMedian: 2, oiChange7d: 0.149 });
 assert.equal(flat.includes("降温"), true);
+assert.equal(flat.includes("class=neg"), true);
 assert.equal(flat.includes("流入"), false);
 assert.equal(flat.includes("流出"), false);
 

@@ -47,8 +47,8 @@ const api = sandbox.globalThis.api;
 
 const named = api.nameCell(ondo);
 assert.equal(named.includes("Ondo Perps"), true);
-assert.equal(named.includes(">缺失<"), true);
-assert.equal(named.includes("Ondo Global (Panama) Inc."), true);
+assert.equal(named.includes("缺失"), false);
+assert.equal(named.includes("Ondo Global (Panama) Inc."), false);
 assert.equal(named.includes("<script"), false);
 const hype = api.nameCell({ name: "Hyperliquid", token: "HYPE" });
 assert.equal(hype.includes(">HYPE<"), true);
