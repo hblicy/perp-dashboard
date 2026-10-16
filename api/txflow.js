@@ -261,14 +261,21 @@ module.exports = async (req, res) => {
     timers.forEach(clearTimeout);
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.setHeader("Cache-Control", ok
+    // Both volumes (including 0): 1h plus stale-while-revalidate.
+    // Exact 24h kept after the candle phase failed: 1h, no stale-while-revalidate.
+    // 24h null: 5 minutes.
+    const cache = body.volume24h != null && body.volume7d != null
       ? "public, max-age=0, s-maxage=3600, stale-while-revalidate=3600"
-      : "public, max-age=0, s-maxage=300");
+      : body.volume24h != null
+        ? "public, max-age=0, s-maxage=3600"
+        : "public, max-age=0, s-maxage=300";
+    res.setHeader("Cache-Control", cache);
     res.end(JSON.stringify(body));
   };
   const fail = (error) => {
     // Candles timed out after every coin's dayNtlVlm succeeded: keep that exact 24h.
-    // 7d stays null, and the 5-minute cache makes the next visitor retry the candles.
+    // 7d stays null. finish() caches that body for 1 hour without stale-while-revalidate.
+    // A body with 24h null stays on the 5-minute cache. outcome stays timeout or error.
     const keep24 = phase === "candles" && exact24h != null;
     const msg = error || "timeout";
     finish({
