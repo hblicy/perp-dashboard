@@ -64,19 +64,6 @@
       }
     },
     {
-      "name": "StandX",
-      "slug": "standx-perps",
-      "coingecko": "standx",
-      "perpsmania": "standx",
-      "fee": {
-        "maker": "0.01%",
-        "taker": "0.04%",
-        "note": "基础费率",
-        "source": "https://docs.standx.com/docs/standx-perps-solutions/trading-fee",
-        "asOf": "2026-10-14"
-      }
-    },
-    {
       "name": "Nado (Ink)",
       "slug": "nado",
       "coingecko": "nado",
