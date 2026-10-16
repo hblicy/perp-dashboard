@@ -7,7 +7,7 @@
       "slug": "hyperliquid",
       "coingecko": "hyperliquid",
       "perpsmania": "hyperliquid",
-      "note": "已发币 HYPE，积分已结束",
+      "note": "已发币",
       "fee": {
         "maker": "0.015%",
         "taker": "0.045%",
@@ -23,7 +23,7 @@
       "llamaSlug": "lighter-perps",
       "coingecko": "lighter",
       "perpsmania": "lighter",
-      "note": "已发币 LIT，主站 S2 已结束",
+      "note": "已发币",
       "fee": {
         "maker": "0%",
         "taker": "0%",
@@ -37,7 +37,7 @@
       "token": "LIT",
       "slug": "lighter-robinhood-perps",
       "coingecko": "robinhood-chain-lighter-futures",
-      "note": "积分每周五发，LIT 池 1100 万",
+      "note": "阶段未公布，周积分未公布，周五分发",
       "fee": {
         "maker": "0%",
         "taker": "0%",
@@ -51,7 +51,7 @@
       "slug": "arcus",
       "coingecko": "arcus-futures",
       "perpsmania": "arcus",
-      "note": "S1 积分，美东周三发 25 万",
+      "note": "S1阶段，周25万分，周四分发",
       "fee": {
         "maker": "0%",
         "taker": "0.0225%",
@@ -63,7 +63,7 @@
     {
       "name": "PopDEX",
       "slug": "popdex",
-      "note": "未公布积分，现发 USDT 现金",
+      "note": "无积分计划",
       "fee": {
         "maker": "0.010%",
         "taker": "0.032%",
@@ -77,7 +77,7 @@
       "slug": "nado",
       "coingecko": "nado",
       "perpsmania": "nado",
-      "note": "已跳过",
+      "note": "S2阶段，周30万–95万分，分发日未公布",
       "fee": {
         "maker": "0.01%",
         "taker": "0.035%",
@@ -91,7 +91,7 @@
       "slug": "bulk",
       "coingecko": "bulk",
       "perpsmania": "bulk",
-      "note": "未发币，Aura 积分",
+      "note": "S1阶段，周积分未公布，分发日未公布",
       "fee": {
         "maker": "0%",
         "taker": "0.035%",
@@ -106,7 +106,7 @@
       "feesDisplay": "missing",
       "coingecko": "risex",
       "perpsmania": "risex",
-      "note": "未发币，S1 每周 20 万分",
+      "note": "S1阶段，周20万分，周二分发",
       "fee": {
         "maker": "0.01%",
         "taker": "0.03%",
@@ -121,7 +121,7 @@
       "feesDisplay": "na",
       "coingecko": "variational-omni",
       "perpsmania": "variational",
-      "note": "已跳过",
+      "note": "阶段未公布，周15万分，周五分发",
       "fee": {
         "maker": "0%",
         "taker": "0%",
@@ -136,7 +136,7 @@
       "feesDisplay": "missing",
       "coingecko": "qfex",
       "perpsmania": "qfex",
-      "note": "Season 0 规则未公布",
+      "note": "无积分计划",
       "fee": {
         "maker": "0.02%",
         "taker": "0.05%",
@@ -148,7 +148,7 @@
     {
       "name": "TxFlow",
       "slug": "txflow-perps",
-      "note": "S1 周 125 万分，10/20 首发",
+      "note": "S1阶段，周125万分，周二分发",
       "fee": {
         "maker": "0.015%",
         "taker": "0.045%",
@@ -162,7 +162,7 @@
       "slug": "entropy.io",
       "hl_dex": "io",
       "url": "https://entropy.io",
-      "note": "无积分计划，仅返佣",
+      "note": "无积分计划",
       "fee": {
         "maker": "0.003%",
         "taker": "0.009%",
@@ -176,7 +176,7 @@
       "slug": "pacifica",
       "coingecko": "pacifica",
       "perpsmania": "pacifica",
-      "note": "已跳过",
+      "note": "阶段未公布，周1000万分，周四分发",
       "fee": {
         "maker": "0.015%",
         "taker": "0.040%",
@@ -195,7 +195,7 @@
       "depositsDisplay": "missing",
       "coingecko": "ondo-perps",
       "perpsmania": "ondo",
-      "note": "周 500 万分，兑换未公布",
+      "note": "阶段未公布，周500万分，分发日未公布",
       "fee": {
         "maker": "0.01%",
         "taker": "0.025%",

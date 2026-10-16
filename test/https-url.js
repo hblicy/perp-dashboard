@@ -37,13 +37,32 @@ assert.equal(httpsFee.includes('rel="noopener noreferrer"'), true);
 
 const cfg = JSON.parse(fs.readFileSync(path.join(root, "config.json"), "utf8"));
 const by = slug => cfg.exchanges.find(e => e.slug === slug);
+const draftNotes = {
+  hyperliquid: "已发币",
+  lighter: "已发币",
+  "lighter-robinhood-perps": "阶段未公布，周积分未公布，周五分发",
+  arcus: "S1阶段，周25万分，周四分发",
+  popdex: "无积分计划",
+  nado: "S2阶段，周30万–95万分，分发日未公布",
+  bulk: "S1阶段，周积分未公布，分发日未公布",
+  risex: "S1阶段，周20万分，周二分发",
+  variational: "阶段未公布，周15万分，周五分发",
+  qfex: "无积分计划",
+  "txflow-perps": "S1阶段，周125万分，周二分发",
+  "entropy.io": "无积分计划",
+  pacifica: "阶段未公布，周1000万分，周四分发",
+  "ondo-perps": "阶段未公布，周500万分，分发日未公布"
+};
+for (const [slug, note] of Object.entries(draftNotes)) assert.equal(by(slug).note, note, slug);
+assert.equal(by("lighter-robinhood-perps").fee.note.includes("Robinhood Chain 版限制中国等 18 个地区"), true);
+
 const risex = by("risex");
-assert.equal(risex.note, "未发币，S1 每周 20 万分");
+assert.equal(risex.note, "S1阶段，周20万分，周二分发");
 assert.equal(risex.note.includes("呸"), false);
 assert.equal(risex.note.includes("呐"), false);
 assert.equal(risex.costPerPoint, undefined);
 
-assert.equal(by("bulk").note, "未发币，Aura 积分");
+assert.equal(by("bulk").note, "S1阶段，周积分未公布，分发日未公布");
 assert.equal(by("bulk").noteSources, undefined);
 assert.equal(cfg.exchanges.some(e => e.noteSources), false);
 assert.equal(by("bulk").fee.source, "https://docs.bulk.trade/bulk-exchange/fees");
