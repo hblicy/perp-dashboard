@@ -10,17 +10,19 @@ const sleepAbort = (ms, signal) => new Promise((resolve, reject) => {
   if (!signal) return;
   signal.addEventListener("abort", () => { clearTimeout(t); reject(new Error("aborted")); }, { once: true });
 });
-function anySignal(list) {
-  const signals = list.filter(Boolean);
-  if (!signals.length) return undefined;
-  if (signals.length === 1) return signals[0];
-  if (typeof AbortSignal.any === "function") return AbortSignal.any(signals);
+async function timedFetch(url, options, ms, parent) {
   const ac = new AbortController();
-  for (const s of signals) {
-    if (s.aborted) { ac.abort(); break; }
-    s.addEventListener("abort", () => ac.abort(), { once: true });
+  const timer = setTimeout(() => ac.abort(), ms);
+  let onParent = null;
+  if (parent) {
+    if (parent.aborted) ac.abort();
+    else { onParent = () => ac.abort(); parent.addEventListener("abort", onParent); }
   }
-  return ac.signal;
+  try { return await fetch(url, Object.assign({}, options, { signal: ac.signal })); }
+  finally {
+    clearTimeout(timer);
+    if (onParent) parent.removeEventListener("abort", onParent);
+  }
 }
 async function info(body, signal) {
   let last = "error";
@@ -29,12 +31,11 @@ async function info(body, signal) {
     const wait = cooldownUntil - Date.now();
     if (wait > 0) await sleepAbort(wait, signal);
     try {
-      const r = await fetch(INFO, {
+      const r = await timedFetch(INFO, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "perp-dashboard" },
-        body: JSON.stringify(body),
-        signal: anySignal([AbortSignal.timeout(12000), signal])
-      });
+        body: JSON.stringify(body)
+      }, 12000, signal);
       if (r.status === 429) {
         last = "HTTP 429";
         const ra = Math.min(parseFloat(r.headers.get("retry-after")) || 12, 20);
@@ -155,6 +156,6 @@ module.exports = async (req, res) => {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Cache-Control", ok
     ? "public, max-age=0, s-maxage=3600, stale-while-revalidate=3600"
-    : "no-store");
+    : "public, max-age=0, s-maxage=300");
   res.end(JSON.stringify(out));
 };

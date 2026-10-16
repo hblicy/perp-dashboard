@@ -10,24 +10,56 @@ const sleepAbort = (ms, signal) => new Promise((resolve, reject) => {
   if (!signal) return;
   signal.addEventListener("abort", () => { clearTimeout(t); reject(new Error("aborted")); }, { once: true });
 });
-function anySignal(list) {
-  const signals = list.filter(Boolean);
-  if (!signals.length) return undefined;
-  if (signals.length === 1) return signals[0];
-  if (typeof AbortSignal.any === "function") return AbortSignal.any(signals);
+async function timedFetch(url, options, ms, parent) {
   const ac = new AbortController();
-  for (const s of signals) {
-    if (s.aborted) { ac.abort(); break; }
-    s.addEventListener("abort", () => ac.abort(), { once: true });
+  const timer = setTimeout(() => ac.abort(), ms);
+  let onParent = null;
+  if (parent) {
+    if (parent.aborted) ac.abort();
+    else { onParent = () => ac.abort(); parent.addEventListener("abort", onParent); }
   }
-  return ac.signal;
+  try { return await fetch(url, Object.assign({}, options, { signal: ac.signal })); }
+  finally {
+    clearTimeout(timer);
+    if (onParent) parent.removeEventListener("abort", onParent);
+  }
+}
+function popdexTurnover(tickers) {
+  let volume24h = 0, n = 0, bad = false, symbolGap = false;
+  const symbols = [];
+  for (const t of tickers || []) {
+    if (String(t.category || "").toLowerCase() !== "futures") continue;
+    n++;
+    if (t.symbol) symbols.push(t.symbol);
+    else symbolGap = true;
+    const q = typeof t.turnover24h === "number" ? t.turnover24h : (typeof t.turnover24h === "string" && t.turnover24h.trim() ? Number(t.turnover24h) : NaN);
+    if (!Number.isFinite(q) || q < 0) bad = true;
+    else volume24h += q;
+  }
+  if (!n) return { volume24h: null, symbols, symbolGap: true, error: "popdex tickers empty" };
+  if (bad) return { volume24h: null, symbols, symbolGap, error: "popdex 24h invalid turnover24h" };
+  return { volume24h, symbols, symbolGap, error: null };
+}
+function sumQuoteWindow(candles, start, now) {
+  if (!Array.isArray(candles)) return null;
+  let s = 0;
+  for (const c of candles) {
+    if (!Array.isArray(c)) return null;
+    const t = Number(c[0]);
+    if (!Number.isFinite(t)) return null;
+    if (t < start || t > now) continue;
+    const quote = Number(c[6]);
+    if (!Number.isFinite(quote) || quote < 0) return null;
+    s += quote;
+  }
+  return s;
 }
 let ERR = [];
 async function J(u, tries = 2, tag) {
   let last = "";
   for (let i = 0; i < tries; i++) {
     try {
-      const r = await fetch(u, { headers: { "User-Agent": "perp-dashboard" }, signal: AbortSignal.timeout(20000) });
+      const r = await timedFetch(u, { headers: { "User-Agent": "perp-dashboard" } }, 20000);
       if (r.ok) return await r.json();
       last = "HTTP " + r.status;
       if (r.status !== 429 && r.status < 500) break;
@@ -88,10 +120,9 @@ async function popGet(path, signal) {
   for (let i = 0; i < 2; i++) {
     if (signal && signal.aborted) throw new Error("aborted");
     try {
-      const r = await fetch(url, {
-        headers: { "User-Agent": "perp-dashboard", "Accept": "application/json" },
-        signal: anySignal([AbortSignal.timeout(8000), signal])
-      });
+      const r = await timedFetch(url, {
+        headers: { "User-Agent": "perp-dashboard", "Accept": "application/json" }
+      }, 8000, signal);
       if (r.status === 429) {
         last = "HTTP 429";
         await sleepAbort(Math.min(parseFloat(r.headers.get("retry-after")) || 2, 8) * 1000, signal);
@@ -137,15 +168,8 @@ async function popdex7d(symbols, signal) {
         const q = new URLSearchParams({ category: "Futures", symbol: uniq[i], interval: "1H", limit: "180" });
         const d = await popGet("/api/v1/public/market/candles?" + q, signal);
         if (!d || String(d.code) !== "200" || !Array.isArray(d.data)) throw new Error("bad candles");
-        let s = 0;
-        for (const c of d.data) {
-          if (!Array.isArray(c)) throw new Error("bad candle");
-          const t = +c[0];
-          if (!Number.isFinite(t) || t < start || t > now) continue;
-          const quote = +c[6];
-          if (!Number.isFinite(quote) || quote < 0) throw new Error("bad quote");
-          s += quote;
-        }
+        const s = sumQuoteWindow(d.data, start, now);
+        if (s == null) throw new Error("bad candle");
         ret[i] = s;
       } catch (e) { bad = true; ret[i] = null; }
     }
@@ -159,19 +183,18 @@ async function popdexVols() {
   const timer = setTimeout(() => ac.abort(), 45000);
   try {
     const tickers = await popdexTickers(ac.signal);
-    let v24 = 0, n = 0; const syms = [];
-    for (const t of tickers) {
-      if (String(t.category || "").toLowerCase() !== "futures") continue;
-      const q = parseFloat(t.turnover24h);
-      if (Number.isFinite(q) && q >= 0) { v24 += q; n++; }
-      if (t.symbol) syms.push(t.symbol);
+    const summed = popdexTurnover(tickers);
+    let v7 = null, error7 = null;
+    if (summed.symbolGap || !summed.symbols.length) error7 = "popdex 7d incomplete";
+    else if (ac.signal.aborted) error7 = "popdex 7d timed out";
+    else {
+      v7 = await popdex7d(summed.symbols, ac.signal);
+      if (v7 == null) error7 = "popdex 7d incomplete";
     }
-    if (!n) return { volume24h: null, volume7d: null, error: "popdex tickers empty" };
-    let v7 = null;
-    if (!ac.signal.aborted) v7 = await popdex7d(syms, ac.signal);
-    return { volume24h: v24, volume7d: v7, error: v7 == null ? "popdex 7d failed" : null };
+    return { volume24h: summed.volume24h, volume7d: v7, error24: summed.error, error7 };
   } catch (e) {
-    return { volume24h: null, volume7d: null, error: String(e && e.message || e) };
+    const msg = String(e && e.message || e);
+    return { volume24h: null, volume7d: null, error24: msg, error7: msg };
   } finally { clearTimeout(timer); }
 }
 module.exports = async (req, res) => {
@@ -185,7 +208,8 @@ module.exports = async (req, res) => {
   if (pr && pv) {
     if (pr.volume24h == null && pv.volume24h != null) { pr.volume24h = pv.volume24h; pr.volSource = "popdex"; }
     if (pr.volume7d == null && pv.volume7d != null) pr.volume7d = pv.volume7d;
-    if (pv.error) ERR.push({ url: "/popdex", error: pv.error });
+    if (pv.error24) ERR.push({ url: "/popdex", error: pv.error24 });
+    if (pv.error7) ERR.push({ url: "/popdex", error: pv.error7 });
   }
   res.statusCode = 200;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
