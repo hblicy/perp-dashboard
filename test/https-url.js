@@ -37,6 +37,11 @@ assert.equal(httpsFee.includes('rel="noopener noreferrer"'), true);
 
 const cfg = JSON.parse(fs.readFileSync(path.join(root, "config.json"), "utf8"));
 const by = slug => cfg.exchanges.find(e => e.slug === slug);
+const stalePhrase = /实时|当前生效/;
+function rowTextFields(e) {
+  return [e.note, e.tokenNote, e.verification, e.fee && e.fee.note];
+}
+assert.equal(cfg.exchanges.every(e => rowTextFields(e).every(v => !stalePhrase.test(String(v || "")))), true);
 const draftNotes = {
   hyperliquid: "已发币",
   lighter: "已发币",
@@ -55,7 +60,6 @@ const draftNotes = {
 };
 for (const [slug, note] of Object.entries(draftNotes)) assert.equal(by(slug).note, note, slug);
 assert.equal(by("lighter-robinhood-perps").note, "LIT奖励池1100万，周积分未公布，周五分发");
-assert.equal(cfg.exchanges.every(e => !e.fee || !String(e.fee.note || "").includes("实时确认")), true);
 assert.equal(cfg.exchanges.every(e => !/https?:\/\//.test(String(e.note || "")) && !(e.fee && /https?:\/\//.test(String(e.fee.note || "")))), true);
 assert.equal(by("lighter-robinhood-perps").fee.note.includes("18 个地区"), false);
 assert.equal(by("lighter-robinhood-perps").fee.note.endsWith("新闻稿称费率优惠由 Lighter 决定）"), true);
