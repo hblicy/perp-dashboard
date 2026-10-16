@@ -3,6 +3,7 @@
   "exchanges": [
     {
       "name": "Hyperliquid",
+      "token": "HYPE",
       "slug": "hyperliquid",
       "coingecko": "hyperliquid",
       "perpsmania": "hyperliquid",
@@ -35,6 +36,7 @@
     },
     {
       "name": "Lighter",
+      "token": "LIT",
       "slug": "lighter",
       "coingecko": "lighter",
       "perpsmania": "lighter",
@@ -71,6 +73,7 @@
     },
     {
       "name": "Lighter (Robinhood Chain)",
+      "token": "LIT",
       "slug": "lighter-robinhood-perps",
       "coingecko": "robinhood-chain-lighter-futures",
       "note": "1100万LIT池；限18地区；禁多号/关联互刷/刷分/脚本操纵指标，积分可事后撤销",
