@@ -3,6 +3,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
+const { assertClean } = require("./forbidden-terms");
 
 const root = path.join(__dirname, "..");
 const cfg = JSON.parse(fs.readFileSync(path.join(root, "config.json"), "utf8"));
@@ -46,8 +47,8 @@ const raw = JSON.stringify(cfg);
 assert.equal(raw.includes("ondo-finance"), false);
 assert.equal(raw.includes("ref=76ZCWB"), false);
 assert.equal(raw.includes("ref=URSW2H"), false);
-assert.equal(raw.includes("Conor"), false);
-assert.equal(html.includes("Conor"), false);
+assertClean(raw);
+assertClean(html);
 assert.equal(html.includes("ondo-finance"), false);
 
 const start = html.indexOf("const f$=");

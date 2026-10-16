@@ -3,6 +3,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
+const { assertClean } = require("./forbidden-terms");
 
 const root = path.join(__dirname, "..");
 const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
@@ -68,7 +69,7 @@ assert.equal(bulk.includes("https://x.com/bulktrade/status/2108905678181912679")
 assert.equal(bulk.includes("https://mainnet-api1.bulk.trade/api/v1/feeState"), true);
 
 assert.equal(html.includes('function canSortKey(k){return k!=="note"&&k!=="costPerPoint"}'), true);
-assert.equal(html.includes("Conor"), false);
-assert.equal(JSON.stringify(cfg).includes("Conor"), false);
+assertClean(html);
+assertClean(JSON.stringify(cfg));
 
 console.log("https-url cases ok");

@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const data = require("../api/data.js");
+const { assertClean } = require("./forbidden-terms");
 
 const DAY = 86400;
 const now = Date.UTC(2026, 9, 16, 3, 0, 0);
@@ -154,5 +155,5 @@ const normalDay = api.feeCell(["fees24h"], { fees24h: 10, feesDayFallback: false
 assert.equal(normalDay.includes(">2026-10-15<"), false);
 assert.equal(normalDay.includes("昨日 UTC 整日"), true);
 
-assert.equal(html.includes("Conor"), false);
+assertClean(html);
 fetchCases().then(() => console.log("deposits-heat cases ok")).catch(err => { console.error(err); process.exit(1); });
