@@ -99,11 +99,10 @@ function applyHeat(rows) {
     if (useFee) { r.heatMetric = "fees"; r.heatRatio = +r.feeRatio; r.heatMedian = feeMid; }
     else if (r.volumeRatio != null) { r.heatMetric = "volume"; r.heatRatio = r.volumeRatio; r.heatMedian = volMid; }
     else { r.heatMetric = null; r.heatRatio = null; r.heatMedian = null; }
-    if (r.heatRatio == null || !(r.heatMedian > 0)) { r.heatRelative = null; r.heatLabel = null; r.heatHot = false; continue; }
+    if (r.heatRatio == null || !(r.heatMedian > 0)) { r.heatRelative = null; r.heatLabel = null; continue; }
     const rel = r.heatRatio / r.heatMedian;
     r.heatRelative = rel;
     r.heatLabel = rel >= 1.2 ? "升温" : rel <= 0.8 ? "降温" : "持平";
-    r.heatHot = rel >= 1.2 && r.oiChange7d > 0;
   }
 }
 const sleepAbort = (ms, signal) => new Promise((resolve, reject) => {
@@ -486,7 +485,7 @@ async function popdexVols(signal) {
 }
 function blankRows() {
   const win = feeSlice([], Date.now());
-  return CFG.exchanges.map(ex => ({ name: ex.name, slug: ex.slug, url: typeof ex.url === "string" && ex.url.startsWith("https://") ? ex.url : null, coingecko: ex.coingecko || null, oi: null, oiChange7d: null, oiBasis: null, oiBasisAt: null, oiSource: null, volume24h: null, volume7d: null, volSource: null, fees24h: null, fees7d: null, feesAsOf: win.feesAsOf, fees7dFrom: win.fees7dFrom, fees7dTo: win.fees7dTo, feesDayFallback: false, feesDisplay: ex.feesDisplay || null, feeRatio: null, tvl: null, userDeposits: null, depositsAt: null, depositsSource: null, depositsReason: null, depositsDisplay: ex.depositsDisplay || null, oiToDeposits: null, token: Object.prototype.hasOwnProperty.call(ex, "token") ? ex.token : undefined, tokenNote: ex.tokenNote || null, verification: ex.verification || null, heatRatio: null, heatMedian: null, heatRelative: null, heatMetric: null, heatLabel: null, heatHot: false }));
+  return CFG.exchanges.map(ex => ({ name: ex.name, slug: ex.slug, url: typeof ex.url === "string" && ex.url.startsWith("https://") ? ex.url : null, coingecko: ex.coingecko || null, oi: null, oiChange7d: null, oiBasis: null, oiBasisAt: null, oiSource: null, volume24h: null, volume7d: null, volSource: null, fees24h: null, fees7d: null, feesAsOf: win.feesAsOf, fees7dFrom: win.fees7dFrom, fees7dTo: win.fees7dTo, feesDayFallback: false, feesDisplay: ex.feesDisplay || null, feeRatio: null, tvl: null, userDeposits: null, depositsAt: null, depositsSource: null, depositsReason: null, depositsDisplay: ex.depositsDisplay || null, oiToDeposits: null, token: Object.prototype.hasOwnProperty.call(ex, "token") ? ex.token : undefined, tokenNote: ex.tokenNote || null, verification: ex.verification || null, heatRatio: null, heatMedian: null, heatRelative: null, heatMetric: null, heatLabel: null }));
 }
 function applyPop(rows, pv) {
   const pr = rows && rows.find(r => r.slug === "popdex");

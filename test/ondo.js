@@ -21,8 +21,8 @@ assert.equal(ondo.depositsDisplay, "missing");
 assert.equal(ondo.coingecko, "ondo-perps");
 assert.equal(ondo.perpsmania, "ondo");
 assert.equal(ondo.llamaSlug, undefined);
-assert.equal(ondo.note, "未见独立代币；周500万Ondo Points兑换未公布；奖励多为USDC");
-assert.equal(ondo.verification, "部分核实（Ondo Points 怎么兑换：缺失；周 $175K USDC 池：官方 8/25 称 12 周计划再延长 6 周，按 7/7 上线推算约 11 月上旬到期，确切结束日缺失；9/30 以后官方 X 没再提周 $175K 和 500 万分）");
+assert.equal(ondo.note, "周 500 万分，兑换未公布");
+assert.equal(ondo.verification, undefined);
 assert.deepEqual(ondo.noteSources.map(s => [s.label, s.url]), [
   ["@OndoPerps 7/23 Ondo Points 上线", "https://x.com/OndoPerps/status/2080110863436894431"],
   ["@OndoFoundation 7/23", "https://x.com/OndoFoundation/status/2080110707388150043"],
@@ -32,11 +32,7 @@ assert.deepEqual(ondo.noteSources.map(s => [s.label, s.url]), [
   ["Ondo Perps 文档 Fees", "https://docs.ondoperps.xyz/fees"],
   ["Terms of Use 第 27 条", "https://ondoperps.xyz/legal/terms-of-use"]
 ]);
-assert.equal(ondo.costPerPoint.display, "缺失");
-assert.equal(ondo.costPerPoint.samples, 0);
-assert.equal(ondo.costPerPoint.referral, false);
-assert.deepEqual(ondo.costPerPoint.sources, []);
-assert.equal(ondo.costPerPoint.basis, "当前周没有带成本的样本；另有 3 条仅参考，全部带邀请");
+assert.equal(ondo.costPerPoint, undefined);
 assert.equal(ondo.fee.maker, "0.01%");
 assert.equal(ondo.fee.taker, "0.025%");
 assert.equal(ondo.fee.note, "目前促销 0.01% / 0.025%（原 0.02% / 0.05%）");
@@ -54,7 +50,7 @@ assert.equal(html.includes("ondo-finance"), false);
 const start = html.indexOf("const f$=");
 const end = html.indexOf("function canSortKey");
 const sandbox = { URL, globalThis: {} };
-vm.runInNewContext(html.slice(start, end) + "\nglobalThis.api={nameCell,noteCell,depCell,cppCell,feeLink};", sandbox);
+vm.runInNewContext(html.slice(start, end) + "\nglobalThis.api={nameCell,noteCell,depCell,feeLink};", sandbox);
 const api = sandbox.globalThis.api;
 
 const named = api.nameCell(ondo);
@@ -68,8 +64,9 @@ assert.equal(hype.includes("缺失"), false);
 assert.equal(api.nameCell({ name: "Pacifica" }).includes("缺失"), false);
 
 const note = api.noteCell(ondo);
-assert.equal(note.includes("未见独立代币；周500万Ondo Points兑换未公布；奖励多为USDC"), true);
-assert.equal(note.includes("部分核实"), true);
+assert.equal(note.includes("周 500 万分，兑换未公布"), true);
+assert.equal(note.includes("部分核实"), false);
+assert.equal(note.includes("未见独立代币"), false);
 assert.equal(note.includes('href="https://x.com/OndoPerps/status/2080110863436894431"'), true);
 assert.equal(note.includes('rel="noopener noreferrer"'), true);
 
@@ -78,12 +75,6 @@ assert.equal(dep.includes(">缺失<"), true);
 assert.equal(dep.includes("TVL 为空"), true);
 assert.equal(dep.includes(">TVL<"), false);
 assert.equal(dep.includes("1.20x"), false);
-
-const cpp = api.cppCell(ondo);
-assert.equal(cpp.includes("缺失"), true);
-assert.equal(cpp.includes("社区估算"), false);
-assert.equal(cpp.includes("含带邀请"), false);
-assert.equal(cpp.includes("当前周没有带成本的样本"), true);
 
 const fee = api.feeLink(ondo.fee);
 assert.equal(fee.includes("0.01% / 0.025%"), true);

@@ -64,7 +64,7 @@ assert.equal(rows[2].heatRatio, 3);
 assert.equal(rows[2].heatMedian, 2);
 assert.notEqual(rows[2].heatMedian, 3);
 assert.equal(rows[2].heatLabel, "升温");
-assert.equal(rows[2].heatHot, true);
+assert.equal(Object.prototype.hasOwnProperty.call(rows[2], "heatHot"), false);
 
 async function fetchCases() {
   let calls = 0;
@@ -93,7 +93,7 @@ const start = html.indexOf("const f$=");
 const end = html.indexOf("function canSortKey");
 assert.ok(start > 0 && end > start);
 const sandbox = { URL, globalThis: {} };
-vm.runInNewContext(html.slice(start, end) + "\nglobalThis.api={applyHeat,depCell,depTip,heatCell,oiFlow,feeCell};", sandbox);
+vm.runInNewContext(html.slice(start, end) + "\nglobalThis.api={applyHeat,depCell,depTip,heatCell,feeCell};", sandbox);
 const api = sandbox.globalThis.api;
 
 const pageRows = rows.map(r => ({ ...r }));
@@ -102,20 +102,24 @@ assert.equal(pageRows[2].heatMedian, 2);
 assert.equal(pageRows[2].heatMetric, "volume");
 assert.equal(pageRows[0].heatMedian, 3);
 
-assert.equal(api.oiFlow(0.15), "流入");
-assert.equal(api.oiFlow(-0.15), "流出");
-assert.equal(api.oiFlow(0.149), "");
-assert.equal(api.oiFlow(-0.149), "");
-assert.equal(api.oiFlow(0.154), "流入");
+assert.equal(html.includes('["oiChange7d","OI 7日变化","%"]'), true);
+assert.equal(html.includes("costPerPoint"), false);
+assert.equal(html.includes("oiFlow"), false);
+assert.equal(html.includes("heatHot"), false);
 
 const volHeat = api.heatCell({ heatLabel: "升温", heatRelative: 1.5, heatMetric: "volume", heatRatio: 3, heatMedian: 2, oiChange7d: 0.15 });
 assert.equal(volHeat.includes(">量<"), true);
-assert.equal(volHeat.includes("流入"), true);
-assert.equal(volHeat.includes("font-weight:700"), true);
+assert.equal(volHeat.includes("流入"), false);
+assert.equal(volHeat.includes("流出"), false);
+assert.equal(volHeat.includes(">热<"), false);
+assert.equal(volHeat.includes("OI 7日"), false);
+assert.equal(volHeat.includes("升温"), true);
 const feeHeat = api.heatCell({ heatLabel: "持平", heatRelative: 1, heatMetric: "fees", heatRatio: 2, heatMedian: 3, oiChange7d: -0.15 });
 assert.equal(feeHeat.includes(">量<"), false);
-assert.equal(feeHeat.includes("流出"), true);
-const flat = api.heatCell({ heatLabel: "持平", heatRelative: 1, heatMetric: "fees", heatRatio: 1, heatMedian: 1, oiChange7d: 0.149 });
+assert.equal(feeHeat.includes("流出"), false);
+assert.equal(feeHeat.includes(">热<"), false);
+const flat = api.heatCell({ heatLabel: "降温", heatRelative: 0.5, heatMetric: "fees", heatRatio: 1, heatMedian: 2, oiChange7d: 0.149 });
+assert.equal(flat.includes("降温"), true);
 assert.equal(flat.includes("流入"), false);
 assert.equal(flat.includes("流出"), false);
 
