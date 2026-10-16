@@ -79,7 +79,8 @@ call().then(res => {
   const rows = payload.rows;
   const by = Object.fromEntries(rows.map(r => [r.slug, r]));
   assert.equal(rows.length, CFG.exchanges.length);
-  assert.equal(res.headers["cache-control"], "public, max-age=0, s-maxage=600, stale-while-revalidate=3600");
+  assert.equal(res.headers["cache-control"], "public, max-age=0, s-maxage=60");
+  assert.equal(String(res.headers["cache-control"]).includes("stale-while-revalidate"), false);
   assert.ok(payload.tookMs < data.DEADLINE_MS, "tookMs " + payload.tookMs);
   assert.ok(payload.tookMs < data.REQ_MS + 8000, "tookMs " + payload.tookMs + " waited for the global deadline");
 

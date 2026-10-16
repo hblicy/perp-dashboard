@@ -177,6 +177,13 @@ function sumQuoteWindow(candles, start, now) {
 }
 let ERR = [];
 let inflightReq = new Set();
+let badUpstream = false;
+function markIfDegraded(url, statusText) {
+  const u = String(url);
+  if (!u.includes("llama.fi") && !u.includes("perpsmania.com") && !u.includes("hyperliquid.xyz")) return;
+  const s = String(statusText);
+  if (s === "timeout" || s === "HTTP 429" || /^HTTP 5/.test(s)) badUpstream = true;
+}
 // One upstream call. A hang ends here, not at the 44s handler deadline. 429/5xx still retry.
 const REQ_MS = 15000;
 const DEADLINE_MS = 44000;
@@ -203,11 +210,12 @@ async function J(u, tries = 2, tag, signal) {
           catch (e) { last = "bad json"; }
         } else {
           last = "HTTP " + r.status;
+          if (r.status === 429 || r.status >= 500) markIfDegraded(u, last);
           if (r.status !== 429 && r.status < 500) break;
         }
       } catch (e) {
         last = ownTimeout(e, signal) ? "timeout" : String(e && e.message || e);
-        if (last === "timeout") break;
+        if (last === "timeout") { markIfDegraded(u, last); break; }
       }
       try { await sleepAbort(1500 * (i + 1), signal); } catch (e) { last = "timeout"; break; }
     }
@@ -222,10 +230,17 @@ async function postJson(url, body, signal, tag) {
   inflightReq.add(source);
   try {
     const r = await timedFetch(url, { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "perp-dashboard" }, body: JSON.stringify(body) }, REQ_MS, signal);
-    if (!r.ok) { ERR.push({ url: source, error: "HTTP " + r.status }); return null; }
+    if (!r.ok) {
+      const statusText = "HTTP " + r.status;
+      if (r.status === 429 || r.status >= 500) markIfDegraded(url, statusText);
+      ERR.push({ url: source, error: statusText });
+      return null;
+    }
     return await r.json();
   } catch (e) {
-    ERR.push({ url: source, error: ownTimeout(e, signal) ? "timeout" : String(e && e.message || e) });
+    const statusText = ownTimeout(e, signal) ? "timeout" : String(e && e.message || e);
+    if (statusText === "timeout") markIfDegraded(url, statusText);
+    ERR.push({ url: source, error: statusText });
     return null;
   } finally {
     inflightReq.delete(source);
@@ -259,7 +274,7 @@ function touchRatio(row) {
   row.oiToDeposits = row.userDeposits > 0 && row.oiBasis != null ? row.oiBasis / row.userDeposits : null;
 }
 function applyOi(row, oi) {
-  if (!oi || row.oiSource === "hyperliquid") return;
+  if (!oi) return;
   const today = feeWindow(Date.now()).today;
   const pts = ((oi.totalDataChart) || []).filter(c => utcDay(c[0]) != null && utcDay(c[0]) < today).sort((a, b) => a[0] - b[0]);
   let o = null, ch = null;
@@ -269,10 +284,11 @@ function applyOi(row, oi) {
     const p = pts.find(c => utcDay(c[0]) === utcDay(l[0]) - 604800);
     ch = p && p[1] > 0 ? l[1] / p[1] - 1 : null;
   }
+  row.oiChange7d = N(ch);
+  if (row.oiSource === "hyperliquid") return;
   const latest = newestPoint(oi.totalDataChart);
   const oiBasis = latest ? latest.v : N(oi.total24h);
   row.oi = o != null ? N(o) : N(oi.total24h);
-  row.oiChange7d = N(ch);
   row.oiBasis = oiBasis;
   row.oiBasisAt = latest ? new Date(latest.t * 1000).toISOString() : null;
   row.oiSource = oiBasis != null ? "defillama" : null;
@@ -481,7 +497,7 @@ function applyPop(rows, pv) {
   if (pv.error7 && pv.error7 !== pv.error24) ERR.push({ url: "/popdex", error: pv.error7 });
 }
 async function handler(req, res) {
-  const t0 = Date.now(); ERR = [];
+  const t0 = Date.now(); ERR = []; badUpstream = false;
   inflight = new Set(); inflightReq = new Set(); popProg = { done: 0, total: 0 }; popPartial = null;
   const ac = new AbortController();
   setMaxListeners(0, ac.signal);
@@ -489,6 +505,7 @@ async function handler(req, res) {
   const rows = blankRows();
   const finish = (payload) => {
     if (sent) return;
+    if (badUpstream) degraded = true;
     if (payload && payload.rows) applyHeat(payload.rows);
     sent = true;
     clearTimeout(hard);
