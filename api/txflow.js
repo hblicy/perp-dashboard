@@ -169,6 +169,8 @@ async function load(signal, mark) {
     return { coin, value: v.d7, day: v.d24 };
   });
   const ctx = await settle(coins, ctxJobs, signal);
+  // Full 24h sum only. A later candle timeout must not publish a partial dayNtlVlm.
+  if (ctx.value != null) mark("dayNtlVlm", coins.length, "exact24", ctx.value);
   mark("candles", coins.length);
   const blocked = ctx.value == null && /403|1015|abort|timeout/i.test(ctx.error || "");
   const cd = blocked || (ctx.value == null && signal.aborted)
@@ -187,7 +189,7 @@ async function load(signal, mark) {
 module.exports = async (req, res) => {
   const t0 = Date.now();
   const ac = new AbortController();
-  let sent = false, hard, phase = "perpMeta", knownCoins = 0, anyCtx = false, ctxDone = 0, candleDone = 0;
+  let sent = false, hard, phase = "perpMeta", knownCoins = 0, anyCtx = false, ctxDone = 0, candleDone = 0, exact24h = null;
   const timers = [];
   const finish = (body, ok) => {
     if (sent) return;
@@ -201,10 +203,15 @@ module.exports = async (req, res) => {
       : "public, max-age=0, s-maxage=300");
     res.end(JSON.stringify(body));
   };
-  const fail = (error) => finish({
-    slug: "txflow-perps", fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0,
-    coins: knownCoins, phase, volume24h: null, volume7d: null, coverage24h: null, volume7dApprox: false, error: error || "timeout"
-  }, false);
+  const fail = (error) => {
+    // Candles timed out after every coin's dayNtlVlm succeeded: keep that exact 24h.
+    // 7d stays null, and the 5-minute cache makes the next visitor retry the candles.
+    const keep24 = phase === "candles" && exact24h != null;
+    finish({
+      slug: "txflow-perps", fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0,
+      coins: knownCoins, phase, volume24h: keep24 ? exact24h : null, volume7d: null, coverage24h: null, volume7dApprox: false, error: error || "timeout"
+    }, false);
+  };
   const arm = (ms, check) => timers.push(setTimeout(() => {
     if (sent || !check()) return;
     ac.abort();
@@ -219,11 +226,12 @@ module.exports = async (req, res) => {
     const done = phase === "candles" ? candleDone : ctxDone;
     fail(phase + " timeout" + (knownCoins ? " " + done + "/" + knownCoins : ""));
   }, 255000);
-  const mark = (next, coins, kind) => {
+  const mark = (next, coins, kind, value) => {
     phase = next;
     if (coins) knownCoins = coins;
     if (kind === "ctx") { anyCtx = true; ctxDone++; }
     if (kind === "candle") candleDone++;
+    if (kind === "exact24") exact24h = value;
   };
   try {
     const body = await load(ac.signal, mark);
