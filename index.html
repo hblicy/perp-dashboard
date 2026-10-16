@@ -19,7 +19,7 @@ const V=(r,k)=>k=="fee"?(r.fee&&isFinite(parseFloat(r.fee.taker))?parseFloat(r.f
 document.getElementById("bd").innerHTML=s.map(r=>"<tr>"+COLS.map(c=>`<td>${cell(c,r)}</td>`).join("")+"</tr>").join("");
 document.querySelectorAll("th").forEach(t=>t.onclick=()=>{const k=t.dataset.k;sd=sk==k?-sd:-1;sk=k;draw()})}
 // 服务器拿不到 CoinGecko 交易量时，浏览器用自己的 IP 补上；7D 逐个加载，并缓存在 localStorage（1 小时）
-const CGID0={"hyperliquid": "hyperliquid", "lighter": "lighter", "lighter-robinhood-perps": "robinhood-chain-lighter-futures", "arcus": "arcus-futures", "standx-perps": "standx", "nado": "nado", "bulk": "bulk", "risex": "risex", "variational": "variational-omni", "qfex": "qfex", "extended-perps": "extended"},G="https://api.coingecko.com/api/v3";
+const CGID0={"hyperliquid": "hyperliquid", "lighter": "lighter", "lighter-robinhood-perps": "robinhood-chain-lighter-futures", "arcus": "arcus-futures", "nado": "nado", "bulk": "bulk", "risex": "risex", "variational": "variational-omni", "qfex": "qfex", "extended-perps": "extended"},G="https://api.coingecko.com/api/v3";
 const LS=k=>{try{const o=JSON.parse(localStorage.getItem(k));return o&&Date.now()-o.t<36e5?o.v:undefined}catch(e){}},SS=(k,v)=>{try{localStorage.setItem(k,JSON.stringify({t:Date.now(),v}))}catch(e){}};
 const CGID=new Proxy({},{get:(_,s)=>{const r=rows.find(x=>x.slug==s);return r&&r.coingecko||CGID0[s]}});const GJ=async u=>{try{const r=await fetch(u);return r.ok?await r.json():null}catch(e){return null}};
 let filling=false;
