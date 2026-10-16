@@ -1,4 +1,5 @@
 // Vercel 无服务器函数：汇总 DefiLlama + CoinGecko 数据，CDN 缓存 10 分钟
+const { setMaxListeners } = require("events");
 const CFG = require("../config.json");
 const L = "https://api.llama.fi", G = "https://api.coingecko.com/api/v3";
 const Q = "excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true";
@@ -91,7 +92,15 @@ async function J(u, tries = 2, tag, signal) {
   if (tag || u.includes("coingecko")) ERR.push({ url: u.replace(/^https:\/\/[^/]+/, ""), error: last });
   return null;
 }
+let inflight = new Set();
+let popProg = { done: 0, total: 0 };
+let popPartial = null;
 async function one(ex, signal) {
+  inflight.add(ex.slug);
+  try { return await oneBody(ex, signal); }
+  finally { inflight.delete(ex.slug); }
+}
+async function oneBody(ex, signal) {
   const s = encodeURIComponent(ex.slug);
   const [oi, fe, rv, tv] = await Promise.all([
     J(`${L}/summary/open-interest/${s}?excludeTotalDataChartBreakdown=true`, 2, undefined, signal),
@@ -126,7 +135,10 @@ async function vols(rows, signal) {
   for (let i = 0; i < todo.length; i += 2) { // 每批 2 个并发，避免 CoinGecko 限流
     await Promise.all(todo.slice(i, i + 2).map(async ex => {
       if (R(ex.slug).volume7d != null) return;
-      const c = await J(`${G}/exchanges/${ex.coingecko}/volume_chart?days=7`, 3, undefined, signal);
+      inflight.add(ex.slug);
+      let c;
+      try { c = await J(`${G}/exchanges/${ex.coingecko}/volume_chart?days=7`, 3, undefined, signal); }
+      finally { inflight.delete(ex.slug); }
       if (!Array.isArray(c) || !c.length) return;
       const P = c.map(([t, v]) => [t, +v]).sort((a, b) => a[0] - b[0]), last = P[P.length - 1][0], pk = [];
       for (let k = 0; k < 7; k++) { const t = last - k * 864e5; const b = P.reduce((a, x) => Math.abs(x[0] - t) < Math.abs(a[0] - t) ? x : a); if (Math.abs(b[0] - t) <= 72e5) pk.push(b[1]); }
@@ -179,6 +191,7 @@ async function popdexTickers(signal) {
 async function popdex7d(symbols, signal) {
   const now = Date.now(), start = now - 168 * 3600 * 1000;
   const uniq = [...new Set(symbols)];
+  popProg = { done: 0, total: uniq.length };
   const ret = new Array(uniq.length);
   let next = 0, bad = false;
   async function worker() {
@@ -193,6 +206,7 @@ async function popdex7d(symbols, signal) {
         const s = sumQuoteWindow(d.data, start, now);
         if (s == null) throw new Error("bad candle");
         ret[i] = s;
+        popProg.done++;
       } catch (e) { bad = true; ret[i] = null; }
     }
   }
@@ -200,10 +214,13 @@ async function popdex7d(symbols, signal) {
   if (bad || !uniq.length || ret.some(v => v == null)) return null;
   return ret.reduce((a, b) => a + b, 0);
 }
+function notePop(v) { popPartial = v; return v; }
 async function popdexVols(signal) {
+  let partial = null;
   try {
     const tickers = await popdexTickers(signal);
     const summed = popdexTurnover(tickers);
+    partial = notePop({ volume24h: summed.volume24h, volume7d: null, error24: summed.error, error7: null });
     let v7 = null, error7 = null;
     if (summed.symbolGap || !summed.symbols.length) error7 = "popdex 7d incomplete";
     else if (signal && signal.aborted) error7 = "popdex 7d timed out";
@@ -211,10 +228,11 @@ async function popdexVols(signal) {
       v7 = await popdex7d(summed.symbols, signal);
       if (v7 == null) error7 = "popdex 7d incomplete";
     }
-    return { volume24h: summed.volume24h, volume7d: v7, error24: summed.error, error7 };
+    return notePop({ volume24h: summed.volume24h, volume7d: v7, error24: summed.error, error7 });
   } catch (e) {
     const msg = String(e && e.message || e);
-    return { volume24h: null, volume7d: null, error24: msg, error7: msg };
+    if (partial && partial.volume24h != null) return notePop({ volume24h: partial.volume24h, volume7d: null, error24: partial.error24, error7: msg });
+    return notePop({ volume24h: null, volume7d: null, error24: msg, error7: msg });
   }
 }
 function blankRows() {
@@ -230,7 +248,9 @@ function applyPop(rows, pv) {
 }
 module.exports = async (req, res) => {
   const t0 = Date.now(); ERR = [];
+  inflight = new Set(); popProg = { done: 0, total: 0 }; popPartial = null;
   const ac = new AbortController();
+  setMaxListeners(0, ac.signal);
   let sent = false, rows = null, hard, phase = "defillama", popSettled = null, degraded = false;
   const finish = (payload) => {
     if (sent) return;
@@ -246,10 +266,13 @@ module.exports = async (req, res) => {
   hard = setTimeout(() => {
     degraded = true;
     ac.abort();
-    const where = phase !== "popdex" && !popSettled ? phase + "+popdex" : phase;
+    const hung = [...inflight];
+    let where = phase !== "popdex" && !popPartial ? phase + "+popdex" : phase;
+    if (hung.length) where += " hung " + hung.join(",");
+    if (popProg.total) where += " popdex " + popProg.done + "/" + popProg.total;
     if (!ERR.some(e => e.url === "/deadline")) ERR.push({ url: "/deadline", error: "handler timeout: " + where });
     const out = rows || blankRows();
-    applyPop(out, popSettled);
+    applyPop(out, popPartial);
     finish({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: dedupeErr(ERR), rows: out });
   }, 44000);
   try {

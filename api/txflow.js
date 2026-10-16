@@ -78,8 +78,13 @@ async function info(body, signal, opt) {
   }
   throw new Error(last);
 }
-function notional(candles, start7, start24, now) {
+function notional(candles, start7, now) {
   if (!Array.isArray(candles)) return null;
+  const hour = 3600000;
+  const start = now - 24 * hour;
+  // The candle that contains now-24h is only partly inside the window. Weight it by that fraction.
+  const earliest = start - (start % hour);
+  const weight = (earliest + hour - start) / hour;
   let d7 = 0, d24 = 0;
   for (const c of candles) {
     const t = +c.t;
@@ -88,7 +93,8 @@ function notional(candles, start7, start24, now) {
     if (![o, h, l, cl, v].every(Number.isFinite) || v < 0) return null;
     const n = v * (o + h + l + cl) / 4;
     d7 += n;
-    if (t >= start24) d24 += n;
+    if (t === earliest) d24 += n * weight;
+    else if (t >= start && t <= now) d24 += n;
   }
   return { d7, d24 };
 }
@@ -119,7 +125,7 @@ async function settle(coins, jobs, signal) {
   take(first.out);
   let lastError = first.lastError;
   let missing = coins.filter(c => !have.has(c));
-  if (missing.length && missing.length <= 40 && !signal.aborted && !first.lastError.includes("403")) {
+  if (missing.length && missing.length <= 40 && !signal.aborted && !/403|1015/.test(first.lastError)) {
     try { await sleepAbort(1500, signal); } catch (e) { /* aborted */ }
     const retry = await runLimited(missing.map(c => jobs[coins.indexOf(c)]), signal);
     take(retry.out);
@@ -148,19 +154,18 @@ async function load(signal, mark) {
   if (!coins.length) throw new Error("no perps");
   mark("dayNtlVlm", coins.length);
   const now = Date.now(), start7 = now - 168 * 3600 * 1000;
-  // Hourly candles open on the hour, so t >= now-24h covers ~23h. Use 25h of opens for the coverage ratio only.
-  const startCov = now - 25 * 3600 * 1000;
   const ctxJobs = coins.map(coin => async () => {
     const ctx = await info({ type: "activeAssetCtx", coin }, signal);
     const v = ctx && +ctx.dayNtlVlm;
     if (!Number.isFinite(v) || v < 0) throw new Error("bad dayNtlVlm");
-    mark("dayNtlVlm", coins.length, true);
+    mark("dayNtlVlm", coins.length, "ctx");
     return { coin, value: v };
   });
   const candleJobs = coins.map(coin => async () => {
     const candles = await info({ type: "candleSnapshot", req: { coin, interval: "1h", startTime: start7, endTime: now } }, signal);
-    const v = notional(candles, start7, startCov, now);
+    const v = notional(candles, start7, now);
     if (v == null) throw new Error("bad candles");
+    mark("candles", coins.length, "candle");
     return { coin, value: v.d7, day: v.d24 };
   });
   const ctx = await settle(coins, ctxJobs, signal);
@@ -170,16 +175,19 @@ async function load(signal, mark) {
     ? { value: null, day: null, error: ctx.error || "timeout" }
     : await settle(coins, candleJobs, signal);
   const coverage24h = ctx.value > 0 && cd.day != null ? cd.day / ctx.value : null;
+  const phaseName = ctx.value == null ? "dayNtlVlm" : cd.value == null ? "candles" : "done";
+  const raw = ctx.value == null ? (ctx.error || "24h failed") : cd.value == null ? (cd.error || "7d failed") : null;
   return {
     coins: coins.length,
     volume24h: ctx.value, volume7d: cd.value, coverage24h,
-    error: ctx.value == null ? (ctx.error || "24h failed") : cd.value == null ? (cd.error || "7d failed") : null
+    phase: phaseName,
+    error: raw == null ? null : phaseName + ": " + raw
   };
 }
 module.exports = async (req, res) => {
   const t0 = Date.now();
   const ac = new AbortController();
-  let sent = false, hard, phase = "perpMeta", knownCoins = 0, anyCtx = false;
+  let sent = false, hard, phase = "perpMeta", knownCoins = 0, anyCtx = false, ctxDone = 0, candleDone = 0;
   const timers = [];
   const finish = (body, ok) => {
     if (sent) return;
@@ -200,23 +208,29 @@ module.exports = async (req, res) => {
   const arm = (ms, check) => timers.push(setTimeout(() => {
     if (sent || !check()) return;
     ac.abort();
-    fail(phase + " timeout");
+    const done = phase === "candles" ? candleDone : ctxDone;
+    fail(phase + " timeout" + (knownCoins ? " " + done + "/" + knownCoins : ""));
   }, ms));
   // These call res.end themselves. They do not wait for a hung socket to abort.
   arm(20000, () => phase === "perpMeta");
   arm(60000, () => phase === "dayNtlVlm" && !anyCtx);
-  hard = setTimeout(() => { ac.abort(); fail(phase + " timeout"); }, 255000);
-  const mark = (next, coins, gotCtx) => {
+  hard = setTimeout(() => {
+    ac.abort();
+    const done = phase === "candles" ? candleDone : ctxDone;
+    fail(phase + " timeout" + (knownCoins ? " " + done + "/" + knownCoins : ""));
+  }, 255000);
+  const mark = (next, coins, kind) => {
     phase = next;
     if (coins) knownCoins = coins;
-    if (gotCtx) anyCtx = true;
+    if (kind === "ctx") { anyCtx = true; ctxDone++; }
+    if (kind === "candle") candleDone++;
   };
   try {
     const body = await load(ac.signal, mark);
     const ok = body.volume24h != null && body.volume7d != null;
     finish({
       slug: "txflow-perps", fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0,
-      coins: body.coins, phase: "done", volume24h: body.volume24h, volume7d: body.volume7d,
+      coins: body.coins, phase: ok ? "done" : (body.phase || phase), volume24h: body.volume24h, volume7d: body.volume7d,
       coverage24h: body.coverage24h, volume7dApprox: body.volume7d != null,
       error: ok ? null : (body.error || "missing")
     }, ok);

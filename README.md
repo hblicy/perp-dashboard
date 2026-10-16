@@ -1,7 +1,7 @@
 # Perp DEX 数据看板（Vercel 版）
 
 - index.html：页面，打开后读取 /api/data，再单独请求 /api/txflow，并在浏览器里补 Entropy 的 7D
-- api/data.js：服务器端函数，汇总 DefiLlama、perpsmania、CoinGecko，以及 PopDEX 官方公开行情。正常结果 Vercel CDN 缓存 10 分钟（s-maxage=600），过期后的 1 小时内先返回旧数据，同时在后台更新（stale-while-revalidate=3600）。整次请求的 44 秒截止会打断这四路；截止时已经算完的 PopDEX 会并进结果，这种不完整结果只缓存 60 秒，errors 里写明停在哪一路
+- api/data.js：服务器端函数，汇总 DefiLlama、perpsmania、CoinGecko，以及 PopDEX 官方公开行情。正常结果 Vercel CDN 缓存 10 分钟（s-maxage=600），过期后的 1 小时内先返回旧数据，同时在后台更新（stale-while-revalidate=3600）。整次请求的 44 秒截止会打断这四路。截止时 errors 写明停在哪一路、哪些交易所还挂着，以及 PopDEX 已完成的合约数。24H 已经算完而 7D 还没有时，24H 单独保留。这种不完整结果只缓存 60 秒
 - api/txflow.js：只算 TxFlow。最多 3 个并发。成功时 CDN 缓存 1 小时；失败时缓存 5 分钟（s-maxage=300），避免每个访客都把约 468 次请求打到同一出口 IP。合约列表 20 秒内拿不到就直接返回失败，不再干等到 255 秒
 - config.json：交易所列表、DefiLlama slug、CoinGecko id、手工填写的 OI/用户存款
 - vercel.json：api/data.js 最长 60 秒，api/txflow.js 最长 300 秒
@@ -10,7 +10,7 @@
 
 - 多数交易所：perpsmania，没有则用 CoinGecko。
 - PopDEX：官方公开 API，服务器端取（浏览器没有 CORS）。24H 是全部期货 `turnover24h` 之和，7D 是滚动 168 小时 1H K 线的报价成交额。金额是 USDT。文档没写清单边还是双边，未核实。任何一条无效，或任何一张 K 线取失败，对应的 24H 或 7D 就是缺失（页面显示“缺失”），不会公布少算的合计。
-- TxFlow：24H 是各永续 `dayNtlVlm` 之和。7D 是滚动 168 小时 K 线的基础币成交量乘 OHLC 均价，页面标“近似”。悬停的覆盖比例用约 25 小时的小时 K 线对比官方 24H `dayNtlVlm`（只按 24 小时开盘时间过滤时，窗口大约只有 23 小时，短差会被略夸大）。K 线基础币成交量低于 dayNtlVlm，偏差大约在低 2–8%，而且会波动。失败时该行显示“缺失”，这个失败结果缓存 5 分钟。
+- TxFlow：24H 是各永续 `dayNtlVlm` 之和。7D 是滚动 168 小时 K 线的基础币成交量乘 OHLC 均价，页面标“近似”。悬停的覆盖比例是恰好 24 小时的 K 线对比官方 `dayNtlVlm`：起始那根跨过边界的小时 K 线只按落在窗口内的分钟比例计入。K 线基础币成交量低于 dayNtlVlm，偏差大约在低 2–8%，而且会波动。失败时该行显示“缺失”，这个失败结果缓存 5 分钟。
 - Entropy：24H 用 Hyperliquid `dayNtlVlm`。7D 在浏览器里用 `candleSnapshot` 估算（未下架合约，滚动 168 小时），也标“近似”。
 - 不要把 Hyperliquid 和 Entropy 的交易量相加。Hyperliquid 一行的 24H 来自 perpsmania，很可能已经包含 HIP-3 子所（包括 Entropy）。
 
