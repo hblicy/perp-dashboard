@@ -2,8 +2,110 @@
 const { setMaxListeners } = require("events");
 const CFG = require("../config.json");
 const L = "https://api.llama.fi", G = "https://api.coingecko.com/api/v3";
-const Q = "excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true";
 const N = x => (typeof x === "number" && isFinite(x) ? x : null);
+function utcDay(ts) {
+  let t = +ts;
+  if (!Number.isFinite(t)) return null;
+  if (t > 1e12) t = Math.floor(t / 1000);
+  return Math.floor(t / 86400) * 86400;
+}
+function isoDay(day) { return new Date(day * 1000).toISOString().slice(0, 10); }
+function feeWindow(now) {
+  const today = Math.floor(now / 86400000) * 86400;
+  const yesterday = today - 86400;
+  return { today, yesterday };
+}
+function feeSlice(chart, now) {
+  const win = feeWindow(now);
+  const feesChart = chartMap(chart);
+  let anchor = win.yesterday, feesDayFallback = false;
+  if (!feesChart.has(anchor)) {
+    let latest = null;
+    for (const day of feesChart.keys()) {
+      if (day < win.today && (latest == null || day > latest)) latest = day;
+    }
+    if (latest != null) { anchor = latest; feesDayFallback = true; }
+  }
+  const has = feesChart.has(anchor);
+  const fees24h = has ? feesChart.get(anchor) : null;
+  const fees7d = sumDays(feesChart, anchor, 7);
+  const prev = sumDays(feesChart, anchor - 86400, 7);
+  return {
+    fees24h, fees7d, feeRatio: fees24h != null && prev > 0 ? fees24h / (prev / 7) : null,
+    feesAsOf: isoDay(anchor), fees7dFrom: isoDay(anchor - 6 * 86400), fees7dTo: isoDay(anchor),
+    feesDayFallback: fees24h != null && feesDayFallback
+  };
+}
+function lighterDeposit(proto) {
+  if (!proto || typeof proto !== "object") return { value: null, reason: "protocol/lighter 没有返回" };
+  const chains = proto.currentChainTvls;
+  if (!chains || typeof chains !== "object" || Array.isArray(chains)) return { value: null, reason: "protocol/lighter 没有 currentChainTvls" };
+  if (!Object.prototype.hasOwnProperty.call(chains, "Ethereum")) return { value: null, reason: "protocol/lighter 没有 Ethereum TVL" };
+  const v = N(chains.Ethereum);
+  if (!(v > 0)) return { value: null, reason: "protocol/lighter 的 Ethereum TVL 无效" };
+  return { value: v, reason: null };
+}
+function median(vals) {
+  const xs = vals.filter(x => x != null && isFinite(x)).sort((a, b) => a - b);
+  const n = xs.length;
+  if (!n) return null;
+  return n % 2 ? xs[(n - 1) / 2] : (xs[n / 2 - 1] + xs[n / 2]) / 2;
+}
+function volumeRatio(r) {
+  return r.volume24h > 0 && r.volume7d > 0 ? r.volume24h * 7 / r.volume7d : null;
+}
+function chartMap(chart) {
+  const m = new Map();
+  for (const p of chart || []) {
+    if (!p || p.length < 2) continue;
+    const day = utcDay(p[0]), v = N(+p[1]);
+    if (day == null || v == null) continue;
+    m.set(day, v);
+  }
+  return m;
+}
+function sumDays(m, startDay, n) {
+  let s = 0;
+  for (let i = 0; i < n; i++) {
+    const v = m.get(startDay - i * 86400);
+    if (v == null) return null;
+    s += v;
+  }
+  return s;
+}
+function newestPoint(chart) {
+  let best = null;
+  for (const p of chart || []) {
+    if (!p || p.length < 2) continue;
+    let t = +p[0];
+    if (t > 1e12) t = Math.floor(t / 1000);
+    const v = N(+p[1]);
+    if (!Number.isFinite(t) || v == null) continue;
+    if (!best || t >= best.t) best = { t, v };
+  }
+  return best;
+}
+function applyHeat(rows) {
+  if (!rows) return;
+  const feeVals = [], volVals = [];
+  for (const r of rows) {
+    r.volumeRatio = volumeRatio(r);
+    if (r.volumeRatio != null) volVals.push(r.volumeRatio);
+    if (!r.feesDisplay && r.feeRatio != null && isFinite(+r.feeRatio)) feeVals.push(+r.feeRatio);
+  }
+  const feeMid = median(feeVals), volMid = median(volVals);
+  for (const r of rows) {
+    const useFee = !r.feesDisplay && r.feeRatio != null && isFinite(+r.feeRatio);
+    if (useFee) { r.heatMetric = "fees"; r.heatRatio = +r.feeRatio; r.heatMedian = feeMid; }
+    else if (r.volumeRatio != null) { r.heatMetric = "volume"; r.heatRatio = r.volumeRatio; r.heatMedian = volMid; }
+    else { r.heatMetric = null; r.heatRatio = null; r.heatMedian = null; }
+    if (r.heatRatio == null || !(r.heatMedian > 0)) { r.heatRelative = null; r.heatLabel = null; r.heatHot = false; continue; }
+    const rel = r.heatRatio / r.heatMedian;
+    r.heatRelative = rel;
+    r.heatLabel = rel >= 1.2 ? "升温" : rel <= 0.8 ? "降温" : "持平";
+    r.heatHot = rel >= 1.2 && r.oiChange7d > 0;
+  }
+}
 const sleepAbort = (ms, signal) => new Promise((resolve, reject) => {
   if (signal && signal.aborted) { reject(new Error("aborted")); return; }
   const t = setTimeout(resolve, ms);
@@ -80,9 +182,15 @@ async function J(u, tries = 2, tag, signal) {
     if (signal && signal.aborted) { last = "aborted"; break; }
     try {
       const r = await timedFetch(u, { headers: { "User-Agent": "perp-dashboard" } }, 20000, signal);
-      if (r.ok) return await r.json();
-      last = "HTTP " + r.status;
-      if (r.status !== 429 && r.status < 500) break;
+      if (r.ok) {
+        const text = r.text == null ? "" : String(r.text);
+        if (!text.trim()) { last = "empty body"; break; }
+        try { return JSON.parse(text); }
+        catch (e) { last = "bad json"; }
+      } else {
+        last = "HTTP " + r.status;
+        if (r.status !== 429 && r.status < 500) break;
+      }
     } catch (e) {
       last = String(e && e.message || e);
       if (signal && signal.aborted) break;
@@ -91,6 +199,37 @@ async function J(u, tries = 2, tag, signal) {
   }
   if (tag || u.includes("coingecko")) ERR.push({ url: u.replace(/^https:\/\/[^/]+/, ""), error: last });
   return null;
+}
+async function postJson(url, body, signal, tag) {
+  try {
+    const r = await timedFetch(url, { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "perp-dashboard" }, body: JSON.stringify(body) }, 20000, signal);
+    if (!r.ok) { if (tag) ERR.push({ url: tag, error: "HTTP " + r.status }); return null; }
+    return await r.json();
+  } catch (e) {
+    if (tag) ERR.push({ url: tag, error: String(e && e.message || e) });
+    return null;
+  }
+}
+async function entropyBook(dex, signal) {
+  const at = new Date().toISOString();
+  const [st, book] = await Promise.all([
+    postJson("https://api.hyperliquid.xyz/info", { type: "perpDexStatus", dex }, signal, "hyperliquid:perpDexStatus"),
+    postJson("https://api.hyperliquid.xyz/info", { type: "metaAndAssetCtxs", dex }, signal, "hyperliquid:metaAndAssetCtxs")
+  ]);
+  const deposits = st ? N(+st.totalNetDeposit) : null;
+  let oi = null;
+  const uni = book && book[0] && book[0].universe, ctx = book && book[1];
+  if (Array.isArray(uni) && Array.isArray(ctx) && uni.length) {
+    let s = 0, ok = true;
+    for (let i = 0; i < uni.length; i++) {
+      if (uni[i] && uni[i].isDelisted) continue;
+      const c = ctx[i] || {}, q = +c.openInterest, px = +c.markPx;
+      if (!Number.isFinite(q) || !Number.isFinite(px) || q < 0 || px < 0) { ok = false; break; }
+      s += q * px;
+    }
+    if (ok) oi = s;
+  }
+  return { deposits, oi, at };
 }
 let inflight = new Set();
 let popProg = { done: 0, total: 0 };
@@ -101,19 +240,47 @@ async function one(ex, signal) {
   finally { inflight.delete(ex.slug); }
 }
 async function oneBody(ex, signal) {
-  const s = encodeURIComponent(ex.slug);
-  const [oi, fe, tv] = await Promise.all([
+  const s = encodeURIComponent(ex.llamaSlug || ex.slug);
+  const lighter = ex.slug === "lighter";
+  const [oi, fe, tv, hl, proto] = await Promise.all([
     J(`${L}/summary/open-interest/${s}?excludeTotalDataChartBreakdown=true`, 2, undefined, signal),
-    J(`${L}/summary/fees/${s}?${Q}`, 2, undefined, signal),
-    J(`${L}/tvl/${s}`, 2, undefined, signal)]);
-  const today = Math.floor(Date.now() / 864e5) * 86400;
-  const pts = ((oi || {}).totalDataChart || []).filter(c => c[0] < today).sort((a, b) => a[0] - b[0]);
+    J(`${L}/summary/fees/${s}?excludeTotalDataChartBreakdown=true`, 2, undefined, signal),
+    lighter ? Promise.resolve(null) : J(`${L}/tvl/${s}`, 2, undefined, signal),
+    ex.hl_dex ? entropyBook(ex.hl_dex, signal) : Promise.resolve(null),
+    lighter ? J(`${L}/protocol/lighter`, 2, "protocol/lighter", signal) : Promise.resolve(null)]);
+  const today = feeWindow(Date.now()).today;
+  const pts = ((oi || {}).totalDataChart || []).filter(c => utcDay(c[0]) != null && utcDay(c[0]) < today).sort((a, b) => a[0] - b[0]);
   let o = null, ch = null;
-  if (pts.length) { const l = pts[pts.length - 1]; o = l[1]; const p = pts.find(c => c[0] === l[0] - 604800); ch = p && p[1] > 0 ? l[1] / p[1] - 1 : null; }
-  const m = (CFG.manual || {})[ex.slug] || {}, dep = N(m.userDeposits), O = o != null ? N(o) : N((oi || {}).total24h);
-  return { name: ex.name, slug: ex.slug, coingecko: ex.coingecko || null, oi: O, oiChange7d: N(ch), volume24h: null, volume7d: null, volSource: null,
-    fees24h: N((fe || {}).total24h), fees7d: N((fe || {}).total7d), tvl: N(tv),
-    userDeposits: dep, depositsAt: m.snapshotAt || null, oiToDeposits: dep && O != null ? O / dep : null, ...(ex.extra || {}) };
+  if (pts.length) { const l = pts[pts.length - 1]; o = l[1]; const p = pts.find(c => utcDay(c[0]) === utcDay(l[0]) - 604800); ch = p && p[1] > 0 ? l[1] / p[1] - 1 : null; }
+  const latest = newestPoint((oi || {}).totalDataChart);
+  let oiBasis = latest ? latest.v : N((oi || {}).total24h);
+  let oiBasisAt = latest ? new Date(latest.t * 1000).toISOString() : null;
+  let O = o != null ? N(o) : N((oi || {}).total24h);
+  const sliced = feeSlice((fe || {}).totalDataChart, Date.now());
+  let fees24h = sliced.fees24h, fees7d = sliced.fees7d, feeRatio = sliced.feeRatio, feesDayFallback = sliced.feesDayFallback;
+  if (ex.feesDisplay) { fees24h = null; fees7d = null; feeRatio = null; feesDayFallback = false; }
+  let tvl = N(tv);
+  const observedAt = new Date().toISOString();
+  let userDeposits = null, depositsAt = null, depositsSource = null, depositsReason = null;
+  let oiSource = oiBasis != null ? "defillama" : null;
+  if (hl && hl.deposits != null) {
+    userDeposits = hl.deposits; depositsAt = hl.at; depositsSource = "hyperliquid";
+    if (hl.oi != null) { O = hl.oi; oiBasis = hl.oi; oiBasisAt = hl.at; oiSource = "hyperliquid"; }
+  } else if (ex.slug === "popdex") {
+    const m = (CFG.manual || {}).popdex || {};
+    userDeposits = N(m.userDeposits); depositsAt = m.snapshotAt || null;
+    if (userDeposits != null) depositsSource = "manual";
+  } else if (lighter) {
+    const eth = lighterDeposit(proto);
+    depositsAt = observedAt;
+    if (eth.value != null) { userDeposits = eth.value; tvl = eth.value; depositsSource = "tvl"; }
+    else depositsReason = eth.reason;
+  } else if (tvl != null) {
+    userDeposits = tvl; depositsAt = observedAt; depositsSource = "tvl";
+  }
+  return { name: ex.name, slug: ex.slug, coingecko: ex.coingecko || null, oi: O, oiChange7d: N(ch), oiBasis, oiBasisAt, oiSource, volume24h: null, volume7d: null, volSource: null,
+    fees24h, fees7d, feesAsOf: sliced.feesAsOf, fees7dFrom: sliced.fees7dFrom, fees7dTo: sliced.fees7dTo, feesDayFallback, feesDisplay: ex.feesDisplay || null, feeRatio, tvl,
+    userDeposits, depositsAt, depositsSource, depositsReason, oiToDeposits: userDeposits > 0 && oiBasis != null ? oiBasis / userDeposits : null, ...(ex.extra || {}) };
 }
 async function pmVols(rows, signal) {
   const d = await J(`https://perpsmania.com/api/perpdex-stats?ts=${Date.now()}`, 2, "perpsmania", signal);
@@ -237,7 +404,8 @@ async function popdexVols(signal) {
   }
 }
 function blankRows() {
-  return CFG.exchanges.map(ex => ({ name: ex.name, slug: ex.slug, coingecko: ex.coingecko || null, oi: null, oiChange7d: null, volume24h: null, volume7d: null, volSource: null, fees24h: null, fees7d: null, tvl: null, userDeposits: null, depositsAt: null, oiToDeposits: null }));
+  const win = feeSlice([], Date.now());
+  return CFG.exchanges.map(ex => ({ name: ex.name, slug: ex.slug, coingecko: ex.coingecko || null, oi: null, oiChange7d: null, oiBasis: null, oiBasisAt: null, oiSource: null, volume24h: null, volume7d: null, volSource: null, fees24h: null, fees7d: null, feesAsOf: win.feesAsOf, fees7dFrom: win.fees7dFrom, fees7dTo: win.fees7dTo, feesDayFallback: false, feesDisplay: ex.feesDisplay || null, feeRatio: null, tvl: null, userDeposits: null, depositsAt: null, depositsSource: null, depositsReason: null, oiToDeposits: null, heatRatio: null, heatMedian: null, heatRelative: null, heatMetric: null, heatLabel: null, heatHot: false }));
 }
 function applyPop(rows, pv) {
   const pr = rows && rows.find(r => r.slug === "popdex");
@@ -247,7 +415,7 @@ function applyPop(rows, pv) {
   if (pv.error24) ERR.push({ url: "/popdex", error: pv.error24 });
   if (pv.error7 && pv.error7 !== pv.error24) ERR.push({ url: "/popdex", error: pv.error7 });
 }
-module.exports = async (req, res) => {
+async function handler(req, res) {
   const t0 = Date.now(); ERR = [];
   inflight = new Set(); popProg = { done: 0, total: 0 }; popPartial = null;
   const ac = new AbortController();
@@ -255,6 +423,7 @@ module.exports = async (req, res) => {
   let sent = false, rows = null, hard, phase = "defillama", popSettled = null, degraded = false;
   const finish = (payload) => {
     if (sent) return;
+    if (payload && payload.rows) applyHeat(payload.rows);
     sent = true;
     clearTimeout(hard);
     res.statusCode = 200;
@@ -298,4 +467,9 @@ module.exports = async (req, res) => {
     ERR.push({ url: "/data", error: String(e && e.message || e) });
     finish({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: dedupeErr(ERR), rows: rows || blankRows() });
   }
-};
+}
+handler.feeSlice = feeSlice;
+handler.lighterDeposit = lighterDeposit;
+handler.applyHeat = applyHeat;
+handler.J = J;
+module.exports = handler;
