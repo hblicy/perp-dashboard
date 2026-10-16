@@ -34,9 +34,11 @@ async function timedFetch(url, options, ms, parent) {
     if (onParent) parent.removeEventListener("abort", onParent);
   }
 }
-async function info(body, signal) {
-  let last = "error";
-  for (let i = 0; i < 5; i++) {
+async function info(body, signal, opt) {
+  const tries = (opt && opt.tries) || 5;
+  const ms = (opt && opt.ms) || 12000;
+  let last = "error", aborts = 0;
+  for (let i = 0; i < tries; i++) {
     if (signal && signal.aborted) throw new Error("aborted");
     const wait = cooldownUntil - Date.now();
     if (wait > 0) await sleepAbort(wait, signal);
@@ -45,7 +47,10 @@ async function info(body, signal) {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "perp-dashboard" },
         body: JSON.stringify(body)
-      }, 12000, signal);
+      }, ms, signal);
+      if (!r.ok && r.text && /error code:\s*1015|Error 1015/i.test(r.text)) {
+        throw Object.assign(new Error("HTTP " + r.status + " Cloudflare 1015"), { hard: true });
+      }
       if (r.status === 429) {
         last = "HTTP 429";
         const ra = Math.min(parseFloat(r.headers.get("retry-after")) || 12, 20);
@@ -65,13 +70,21 @@ async function info(body, signal) {
     } catch (e) {
       if ((signal && signal.aborted) || e.hard) throw e;
       last = String(e && e.message || e);
+      // A child timeout aborts the socket but not the handler. Two of those is enough;
+      // retrying five times is what stretched a dead upstream out to the 255s deadline.
+      if (/abort/i.test(last) && ++aborts >= 2) break;
     }
     await sleepAbort(400 * (i + 1), signal);
   }
   throw new Error(last);
 }
-function notional(candles, start7, start24, now) {
+function notional(candles, start7, now) {
   if (!Array.isArray(candles)) return null;
+  const hour = 3600000;
+  const start = now - 24 * hour;
+  // The candle that contains now-24h is only partly inside the window. Weight it by that fraction.
+  const earliest = start - (start % hour);
+  const weight = (earliest + hour - start) / hour;
   let d7 = 0, d24 = 0;
   for (const c of candles) {
     const t = +c.t;
@@ -80,7 +93,8 @@ function notional(candles, start7, start24, now) {
     if (![o, h, l, cl, v].every(Number.isFinite) || v < 0) return null;
     const n = v * (o + h + l + cl) / 4;
     d7 += n;
-    if (t >= start24) d24 += n;
+    if (t === earliest) d24 += n * weight;
+    else if (t >= start && t <= now) d24 += n;
   }
   return { d7, d24 };
 }
@@ -111,7 +125,7 @@ async function settle(coins, jobs, signal) {
   take(first.out);
   let lastError = first.lastError;
   let missing = coins.filter(c => !have.has(c));
-  if (missing.length && missing.length <= 40 && !signal.aborted && !first.lastError.includes("403")) {
+  if (missing.length && missing.length <= 40 && !signal.aborted && !/403|1015/.test(first.lastError)) {
     try { await sleepAbort(1500, signal); } catch (e) { /* aborted */ }
     const retry = await runLimited(missing.map(c => jobs[coins.indexOf(c)]), signal);
     take(retry.out);
@@ -129,42 +143,57 @@ async function settle(coins, jobs, signal) {
   }
   return { value, day: hasDay ? day : null, error: "" };
 }
-async function load(signal) {
-  const meta = await info({ type: "perpMeta", dex: "" }, signal);
+async function load(signal, mark) {
+  mark("perpMeta");
+  // Two 8s attempts. The handler also ends the HTTP response at 20s if this is still running,
+  // because a timer + res.end is what actually returned on Vercel; abort unblocking the socket is not proven there.
+  const meta = await info({ type: "perpMeta", dex: "" }, signal, { tries: 2, ms: 8000 });
   const uni = meta && Array.isArray(meta.universe) ? meta.universe : null;
   if (!uni) throw new Error("bad perpMeta");
   const coins = uni.filter(u => u && u.name && u.delisted !== true).map(u => u.name);
   if (!coins.length) throw new Error("no perps");
-  const now = Date.now(), start7 = now - 168 * 3600 * 1000, start24 = now - 24 * 3600 * 1000;
+  mark("dayNtlVlm", coins.length);
+  const now = Date.now(), start7 = now - 168 * 3600 * 1000;
   const ctxJobs = coins.map(coin => async () => {
     const ctx = await info({ type: "activeAssetCtx", coin }, signal);
     const v = ctx && +ctx.dayNtlVlm;
     if (!Number.isFinite(v) || v < 0) throw new Error("bad dayNtlVlm");
+    mark("dayNtlVlm", coins.length, "ctx");
     return { coin, value: v };
   });
   const candleJobs = coins.map(coin => async () => {
     const candles = await info({ type: "candleSnapshot", req: { coin, interval: "1h", startTime: start7, endTime: now } }, signal);
-    const v = notional(candles, start7, start24, now);
+    const v = notional(candles, start7, now);
     if (v == null) throw new Error("bad candles");
+    mark("candles", coins.length, "candle");
     return { coin, value: v.d7, day: v.d24 };
   });
   const ctx = await settle(coins, ctxJobs, signal);
-  const cd = ctx.value == null && signal.aborted ? { value: null, day: null, error: "timeout" } : await settle(coins, candleJobs, signal);
+  mark("candles", coins.length);
+  const blocked = ctx.value == null && /403|1015|abort|timeout/i.test(ctx.error || "");
+  const cd = blocked || (ctx.value == null && signal.aborted)
+    ? { value: null, day: null, error: ctx.error || "timeout" }
+    : await settle(coins, candleJobs, signal);
   const coverage24h = ctx.value > 0 && cd.day != null ? cd.day / ctx.value : null;
+  const phaseName = ctx.value == null ? "dayNtlVlm" : cd.value == null ? "candles" : "done";
+  const raw = ctx.value == null ? (ctx.error || "24h failed") : cd.value == null ? (cd.error || "7d failed") : null;
   return {
     coins: coins.length,
     volume24h: ctx.value, volume7d: cd.value, coverage24h,
-    error: ctx.value == null ? (ctx.error || "24h failed") : cd.value == null ? (cd.error || "7d failed") : null
+    phase: phaseName,
+    error: raw == null ? null : phaseName + ": " + raw
   };
 }
 module.exports = async (req, res) => {
   const t0 = Date.now();
   const ac = new AbortController();
-  let sent = false, hard;
+  let sent = false, hard, phase = "perpMeta", knownCoins = 0, anyCtx = false, ctxDone = 0, candleDone = 0;
+  const timers = [];
   const finish = (body, ok) => {
     if (sent) return;
     sent = true;
     clearTimeout(hard);
+    timers.forEach(clearTimeout);
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader("Cache-Control", ok
@@ -174,15 +203,34 @@ module.exports = async (req, res) => {
   };
   const fail = (error) => finish({
     slug: "txflow-perps", fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0,
-    coins: 0, volume24h: null, volume7d: null, coverage24h: null, volume7dApprox: false, error: error || "timeout"
+    coins: knownCoins, phase, volume24h: null, volume7d: null, coverage24h: null, volume7dApprox: false, error: error || "timeout"
   }, false);
-  hard = setTimeout(() => { ac.abort(); fail("timeout"); }, 255000);
+  const arm = (ms, check) => timers.push(setTimeout(() => {
+    if (sent || !check()) return;
+    ac.abort();
+    const done = phase === "candles" ? candleDone : ctxDone;
+    fail(phase + " timeout" + (knownCoins ? " " + done + "/" + knownCoins : ""));
+  }, ms));
+  // These call res.end themselves. They do not wait for a hung socket to abort.
+  arm(20000, () => phase === "perpMeta");
+  arm(60000, () => phase === "dayNtlVlm" && !anyCtx);
+  hard = setTimeout(() => {
+    ac.abort();
+    const done = phase === "candles" ? candleDone : ctxDone;
+    fail(phase + " timeout" + (knownCoins ? " " + done + "/" + knownCoins : ""));
+  }, 255000);
+  const mark = (next, coins, kind) => {
+    phase = next;
+    if (coins) knownCoins = coins;
+    if (kind === "ctx") { anyCtx = true; ctxDone++; }
+    if (kind === "candle") candleDone++;
+  };
   try {
-    const body = await load(ac.signal);
+    const body = await load(ac.signal, mark);
     const ok = body.volume24h != null && body.volume7d != null;
     finish({
       slug: "txflow-perps", fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0,
-      coins: body.coins, volume24h: body.volume24h, volume7d: body.volume7d,
+      coins: body.coins, phase: ok ? "done" : (body.phase || phase), volume24h: body.volume24h, volume7d: body.volume7d,
       coverage24h: body.coverage24h, volume7dApprox: body.volume7d != null,
       error: ok ? null : (body.error || "missing")
     }, ok);

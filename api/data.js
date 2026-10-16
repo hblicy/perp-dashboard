@@ -1,9 +1,9 @@
 // Vercel 无服务器函数：汇总 DefiLlama + CoinGecko 数据，CDN 缓存 10 分钟
+const { setMaxListeners } = require("events");
 const CFG = require("../config.json");
 const L = "https://api.llama.fi", G = "https://api.coingecko.com/api/v3";
 const Q = "excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true";
 const N = x => (typeof x === "number" && isFinite(x) ? x : null);
-const sleep = ms => new Promise(r => setTimeout(r, ms));
 const sleepAbort = (ms, signal) => new Promise((resolve, reject) => {
   if (signal && signal.aborted) { reject(new Error("aborted")); return; }
   const t = setTimeout(resolve, ms);
@@ -74,25 +74,37 @@ function sumQuoteWindow(candles, start, now) {
   return s;
 }
 let ERR = [];
-async function J(u, tries = 2, tag) {
+async function J(u, tries = 2, tag, signal) {
   let last = "";
   for (let i = 0; i < tries; i++) {
+    if (signal && signal.aborted) { last = "aborted"; break; }
     try {
-      const r = await timedFetch(u, { headers: { "User-Agent": "perp-dashboard" } }, 20000);
+      const r = await timedFetch(u, { headers: { "User-Agent": "perp-dashboard" } }, 20000, signal);
       if (r.ok) return await r.json();
       last = "HTTP " + r.status;
       if (r.status !== 429 && r.status < 500) break;
-    } catch (e) { last = String(e && e.message || e); }
-    await sleep(1500 * (i + 1));
+    } catch (e) {
+      last = String(e && e.message || e);
+      if (signal && signal.aborted) break;
+    }
+    try { await sleepAbort(1500 * (i + 1), signal); } catch (e) { break; }
   }
   if (tag || u.includes("coingecko")) ERR.push({ url: u.replace(/^https:\/\/[^/]+/, ""), error: last });
   return null;
 }
-async function one(ex) {
+let inflight = new Set();
+let popProg = { done: 0, total: 0 };
+let popPartial = null;
+async function one(ex, signal) {
+  inflight.add(ex.slug);
+  try { return await oneBody(ex, signal); }
+  finally { inflight.delete(ex.slug); }
+}
+async function oneBody(ex, signal) {
   const s = encodeURIComponent(ex.slug);
   const [oi, fe, rv, tv] = await Promise.all([
-    J(`${L}/summary/open-interest/${s}?excludeTotalDataChartBreakdown=true`),
-    J(`${L}/summary/fees/${s}?${Q}`), J(`${L}/summary/fees/${s}?dataType=dailyRevenue&${Q}`), J(`${L}/tvl/${s}`)]);
+    J(`${L}/summary/open-interest/${s}?excludeTotalDataChartBreakdown=true`, 2, undefined, signal),
+    J(`${L}/summary/fees/${s}?${Q}`, 2, undefined, signal), J(`${L}/summary/fees/${s}?dataType=dailyRevenue&${Q}`, 2, undefined, signal), J(`${L}/tvl/${s}`, 2, undefined, signal)]);
   const today = Math.floor(Date.now() / 864e5) * 86400;
   const pts = ((oi || {}).totalDataChart || []).filter(c => c[0] < today).sort((a, b) => a[0] - b[0]);
   let o = null, ch = null;
@@ -102,8 +114,8 @@ async function one(ex) {
     fees24h: N((fe || {}).total24h), fees7d: N((fe || {}).total7d), revenue24h: N((rv || {}).total24h), tvl: N(tv),
     userDeposits: dep, depositsAt: m.snapshotAt || null, oiToDeposits: dep && O != null ? O / dep : null, ...(ex.extra || {}) };
 }
-async function pmVols(rows) {
-  const d = await J(`https://perpsmania.com/api/perpdex-stats?ts=${Date.now()}`, 2, "perpsmania");
+async function pmVols(rows, signal) {
+  const d = await J(`https://perpsmania.com/api/perpdex-stats?ts=${Date.now()}`, 2, "perpsmania", signal);
   if (!d || typeof d !== "object") return;
   for (const ex of CFG.exchanges) {
     const m = ex.perpsmania && d[ex.perpsmania]; if (!m) continue;
@@ -113,8 +125,8 @@ async function pmVols(rows) {
     if (v7 != null) r.volume7d = v7;
   }
 }
-async function vols(rows) {
-  const [lst, p] = await Promise.all([J(`${G}/derivatives/exchanges?per_page=300`), J(`${G}/simple/price?ids=bitcoin&vs_currencies=usd`)]);
+async function vols(rows, signal) {
+  const [lst, p] = await Promise.all([J(`${G}/derivatives/exchanges?per_page=300`, 2, undefined, signal), J(`${G}/simple/price?ids=bitcoin&vs_currencies=usd`, 2, undefined, signal)]);
   const btc = N(p && p.bitcoin && p.bitcoin.usd); if (!btc || !lst) return;
   const by = Object.fromEntries(lst.map(e => [e.id, e]));
   const R = s => rows.find(r => r.slug === s);
@@ -123,7 +135,10 @@ async function vols(rows) {
   for (let i = 0; i < todo.length; i += 2) { // 每批 2 个并发，避免 CoinGecko 限流
     await Promise.all(todo.slice(i, i + 2).map(async ex => {
       if (R(ex.slug).volume7d != null) return;
-      const c = await J(`${G}/exchanges/${ex.coingecko}/volume_chart?days=7`, 3);
+      inflight.add(ex.slug);
+      let c;
+      try { c = await J(`${G}/exchanges/${ex.coingecko}/volume_chart?days=7`, 3, undefined, signal); }
+      finally { inflight.delete(ex.slug); }
       if (!Array.isArray(c) || !c.length) return;
       const P = c.map(([t, v]) => [t, +v]).sort((a, b) => a[0] - b[0]), last = P[P.length - 1][0], pk = [];
       for (let k = 0; k < 7; k++) { const t = last - k * 864e5; const b = P.reduce((a, x) => Math.abs(x[0] - t) < Math.abs(a[0] - t) ? x : a); if (Math.abs(b[0] - t) <= 72e5) pk.push(b[1]); }
@@ -176,6 +191,7 @@ async function popdexTickers(signal) {
 async function popdex7d(symbols, signal) {
   const now = Date.now(), start = now - 168 * 3600 * 1000;
   const uniq = [...new Set(symbols)];
+  popProg = { done: 0, total: uniq.length };
   const ret = new Array(uniq.length);
   let next = 0, bad = false;
   async function worker() {
@@ -190,6 +206,7 @@ async function popdex7d(symbols, signal) {
         const s = sumQuoteWindow(d.data, start, now);
         if (s == null) throw new Error("bad candle");
         ret[i] = s;
+        popProg.done++;
       } catch (e) { bad = true; ret[i] = null; }
     }
   }
@@ -197,10 +214,13 @@ async function popdex7d(symbols, signal) {
   if (bad || !uniq.length || ret.some(v => v == null)) return null;
   return ret.reduce((a, b) => a + b, 0);
 }
+function notePop(v) { popPartial = v; return v; }
 async function popdexVols(signal) {
+  let partial = null;
   try {
     const tickers = await popdexTickers(signal);
     const summed = popdexTurnover(tickers);
+    partial = notePop({ volume24h: summed.volume24h, volume7d: null, error24: summed.error, error7: null });
     let v7 = null, error7 = null;
     if (summed.symbolGap || !summed.symbols.length) error7 = "popdex 7d incomplete";
     else if (signal && signal.aborted) error7 = "popdex 7d timed out";
@@ -208,49 +228,72 @@ async function popdexVols(signal) {
       v7 = await popdex7d(summed.symbols, signal);
       if (v7 == null) error7 = "popdex 7d incomplete";
     }
-    return { volume24h: summed.volume24h, volume7d: v7, error24: summed.error, error7 };
+    return notePop({ volume24h: summed.volume24h, volume7d: v7, error24: summed.error, error7 });
   } catch (e) {
     const msg = String(e && e.message || e);
-    return { volume24h: null, volume7d: null, error24: msg, error7: msg };
+    if (partial && partial.volume24h != null) return notePop({ volume24h: partial.volume24h, volume7d: null, error24: partial.error24, error7: msg });
+    return notePop({ volume24h: null, volume7d: null, error24: msg, error7: msg });
   }
 }
 function blankRows() {
   return CFG.exchanges.map(ex => ({ name: ex.name, slug: ex.slug, coingecko: ex.coingecko || null, oi: null, oiChange7d: null, volume24h: null, volume7d: null, volSource: null, fees24h: null, fees7d: null, revenue24h: null, tvl: null, userDeposits: null, depositsAt: null, oiToDeposits: null }));
 }
+function applyPop(rows, pv) {
+  const pr = rows && rows.find(r => r.slug === "popdex");
+  if (!pr || !pv) return;
+  if (pr.volume24h == null && pv.volume24h != null) { pr.volume24h = pv.volume24h; pr.volSource = "popdex"; }
+  if (pr.volume7d == null && pv.volume7d != null) pr.volume7d = pv.volume7d;
+  if (pv.error24) ERR.push({ url: "/popdex", error: pv.error24 });
+  if (pv.error7 && pv.error7 !== pv.error24) ERR.push({ url: "/popdex", error: pv.error7 });
+}
 module.exports = async (req, res) => {
   const t0 = Date.now(); ERR = [];
+  inflight = new Set(); popProg = { done: 0, total: 0 }; popPartial = null;
   const ac = new AbortController();
-  let sent = false, rows = null, hard;
-  const cache = "public, max-age=0, s-maxage=600, stale-while-revalidate=3600";
+  setMaxListeners(0, ac.signal);
+  let sent = false, rows = null, hard, phase = "defillama", popSettled = null, degraded = false;
   const finish = (payload) => {
     if (sent) return;
     sent = true;
     clearTimeout(hard);
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.setHeader("Cache-Control", cache);
+    res.setHeader("Cache-Control", degraded
+      ? "public, max-age=0, s-maxage=60"
+      : "public, max-age=0, s-maxage=600, stale-while-revalidate=3600");
     res.end(JSON.stringify(payload));
   };
   hard = setTimeout(() => {
+    degraded = true;
     ac.abort();
-    if (!ERR.some(e => e.url === "/deadline")) ERR.push({ url: "/deadline", error: "handler timeout" });
-    finish({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: dedupeErr(ERR), rows: rows || blankRows() });
+    const hung = [...inflight];
+    let where = phase !== "popdex" && !popPartial ? phase + "+popdex" : phase;
+    if (hung.length) where += " hung " + hung.join(",");
+    if (popProg.total) where += " popdex " + popProg.done + "/" + popProg.total;
+    if (!ERR.some(e => e.url === "/deadline")) ERR.push({ url: "/deadline", error: "handler timeout: " + where });
+    const out = rows || blankRows();
+    applyPop(out, popPartial);
+    finish({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: dedupeErr(ERR), rows: out });
   }, 44000);
   try {
-    const popP = CFG.exchanges.some(e => e.slug === "popdex") ? popdexVols(ac.signal) : Promise.resolve(null);
-    rows = await Promise.all(CFG.exchanges.map(one));
-    await pmVols(rows);
-    if (rows.some(r => r.coingecko && (r.volume24h == null || r.volume7d == null))) await vols(rows);
-    const pv = await popP;
-    const pr = rows && rows.find(r => r.slug === "popdex");
-    if (pr && pv) {
-      if (pr.volume24h == null && pv.volume24h != null) { pr.volume24h = pv.volume24h; pr.volSource = "popdex"; }
-      if (pr.volume7d == null && pv.volume7d != null) pr.volume7d = pv.volume7d;
-      if (pv.error24) ERR.push({ url: "/popdex", error: pv.error24 });
-      if (pv.error7 && pv.error7 !== pv.error24) ERR.push({ url: "/popdex", error: pv.error7 });
-    }
+    const popP = CFG.exchanges.some(e => e.slug === "popdex")
+      ? popdexVols(ac.signal).then(v => { popSettled = v; return v; })
+      : Promise.resolve(null);
+    phase = "defillama";
+    rows = await Promise.all(CFG.exchanges.map(ex => one(ex, ac.signal)));
+    if (sent) return;
+    phase = "perpsmania";
+    await pmVols(rows, ac.signal);
+    if (sent) return;
+    phase = "coingecko";
+    if (rows.some(r => r.coingecko && (r.volume24h == null || r.volume7d == null))) await vols(rows, ac.signal);
+    if (sent) return;
+    phase = "popdex";
+    applyPop(rows, await popP);
+    if (sent) return;
     finish({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: dedupeErr(ERR), rows: rows || blankRows() });
   } catch (e) {
+    if (sent) return;
     ERR.push({ url: "/data", error: String(e && e.message || e) });
     finish({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: dedupeErr(ERR), rows: rows || blankRows() });
   }
