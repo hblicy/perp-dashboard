@@ -176,38 +176,59 @@ function sumQuoteWindow(candles, start, now) {
   return s;
 }
 let ERR = [];
+let inflightReq = new Set();
+// One upstream call. A hang ends here, not at the 44s handler deadline. 429/5xx still retry.
+const REQ_MS = 15000;
+const DEADLINE_MS = 44000;
+function sourceOf(u, tag) { return tag || String(u).replace(/^https:\/\/[^/]+/, ""); }
+function ownTimeout(e, signal) {
+  if (signal && signal.aborted) return true;
+  const name = e && e.name ? String(e.name) : "";
+  const msg = String(e && e.message || e || "");
+  return /abort/i.test(name) || /abort/i.test(msg);
+}
 async function J(u, tries = 2, tag, signal) {
+  const source = sourceOf(u, tag);
+  inflightReq.add(source);
   let last = "";
-  for (let i = 0; i < tries; i++) {
-    if (signal && signal.aborted) { last = "aborted"; break; }
-    try {
-      const r = await timedFetch(u, { headers: { "User-Agent": "perp-dashboard" } }, 20000, signal);
-      if (r.ok) {
-        const text = r.text == null ? "" : String(r.text);
-        if (!text.trim()) { last = "empty body"; break; }
-        try { return JSON.parse(text); }
-        catch (e) { last = "bad json"; }
-      } else {
-        last = "HTTP " + r.status;
-        if (r.status !== 429 && r.status < 500) break;
+  try {
+    for (let i = 0; i < tries; i++) {
+      if (signal && signal.aborted) { last = "timeout"; break; }
+      try {
+        const r = await timedFetch(u, { headers: { "User-Agent": "perp-dashboard" } }, REQ_MS, signal);
+        if (r.ok) {
+          const text = r.text == null ? "" : String(r.text);
+          if (!text.trim()) { last = "empty body"; break; }
+          try { return JSON.parse(text); }
+          catch (e) { last = "bad json"; }
+        } else {
+          last = "HTTP " + r.status;
+          if (r.status !== 429 && r.status < 500) break;
+        }
+      } catch (e) {
+        last = ownTimeout(e, signal) ? "timeout" : String(e && e.message || e);
+        if (last === "timeout") break;
       }
-    } catch (e) {
-      last = String(e && e.message || e);
-      if (signal && signal.aborted) break;
+      try { await sleepAbort(1500 * (i + 1), signal); } catch (e) { last = "timeout"; break; }
     }
-    try { await sleepAbort(1500 * (i + 1), signal); } catch (e) { break; }
+    if (last && (tag || u.includes("coingecko") || last === "timeout" || /^HTTP 5/.test(last))) ERR.push({ url: source, error: last });
+    return null;
+  } finally {
+    inflightReq.delete(source);
   }
-  if (tag || u.includes("coingecko")) ERR.push({ url: u.replace(/^https:\/\/[^/]+/, ""), error: last });
-  return null;
 }
 async function postJson(url, body, signal, tag) {
+  const source = tag || sourceOf(url);
+  inflightReq.add(source);
   try {
-    const r = await timedFetch(url, { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "perp-dashboard" }, body: JSON.stringify(body) }, 20000, signal);
-    if (!r.ok) { if (tag) ERR.push({ url: tag, error: "HTTP " + r.status }); return null; }
+    const r = await timedFetch(url, { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "perp-dashboard" }, body: JSON.stringify(body) }, REQ_MS, signal);
+    if (!r.ok) { ERR.push({ url: source, error: "HTTP " + r.status }); return null; }
     return await r.json();
   } catch (e) {
-    if (tag) ERR.push({ url: tag, error: String(e && e.message || e) });
+    ERR.push({ url: source, error: ownTimeout(e, signal) ? "timeout" : String(e && e.message || e) });
     return null;
+  } finally {
+    inflightReq.delete(source);
   }
 }
 async function entropyBook(dex, signal) {
@@ -234,57 +255,97 @@ async function entropyBook(dex, signal) {
 let inflight = new Set();
 let popProg = { done: 0, total: 0 };
 let popPartial = null;
-async function one(ex, signal) {
-  inflight.add(ex.slug);
-  try { return await oneBody(ex, signal); }
-  finally { inflight.delete(ex.slug); }
+function touchRatio(row) {
+  row.oiToDeposits = row.userDeposits > 0 && row.oiBasis != null ? row.oiBasis / row.userDeposits : null;
 }
-async function oneBody(ex, signal) {
-  const s = encodeURIComponent(ex.llamaSlug || ex.slug);
-  const lighter = ex.slug === "lighter";
-  const [oi, fe, tv, hl, proto] = await Promise.all([
-    J(`${L}/summary/open-interest/${s}?excludeTotalDataChartBreakdown=true`, 2, undefined, signal),
-    J(`${L}/summary/fees/${s}?excludeTotalDataChartBreakdown=true`, 2, undefined, signal),
-    lighter ? Promise.resolve(null) : J(`${L}/tvl/${s}`, 2, undefined, signal),
-    ex.hl_dex ? entropyBook(ex.hl_dex, signal) : Promise.resolve(null),
-    lighter ? J(`${L}/protocol/lighter`, 2, "protocol/lighter", signal) : Promise.resolve(null)]);
+function applyOi(row, oi) {
+  if (!oi || row.oiSource === "hyperliquid") return;
   const today = feeWindow(Date.now()).today;
-  const pts = ((oi || {}).totalDataChart || []).filter(c => utcDay(c[0]) != null && utcDay(c[0]) < today).sort((a, b) => a[0] - b[0]);
+  const pts = ((oi.totalDataChart) || []).filter(c => utcDay(c[0]) != null && utcDay(c[0]) < today).sort((a, b) => a[0] - b[0]);
   let o = null, ch = null;
-  if (pts.length) { const l = pts[pts.length - 1]; o = l[1]; const p = pts.find(c => utcDay(c[0]) === utcDay(l[0]) - 604800); ch = p && p[1] > 0 ? l[1] / p[1] - 1 : null; }
-  const latest = newestPoint((oi || {}).totalDataChart);
-  let oiBasis = latest ? latest.v : N((oi || {}).total24h);
-  let oiBasisAt = latest ? new Date(latest.t * 1000).toISOString() : null;
-  let O = o != null ? N(o) : N((oi || {}).total24h);
+  if (pts.length) {
+    const l = pts[pts.length - 1];
+    o = l[1];
+    const p = pts.find(c => utcDay(c[0]) === utcDay(l[0]) - 604800);
+    ch = p && p[1] > 0 ? l[1] / p[1] - 1 : null;
+  }
+  const latest = newestPoint(oi.totalDataChart);
+  const oiBasis = latest ? latest.v : N(oi.total24h);
+  row.oi = o != null ? N(o) : N(oi.total24h);
+  row.oiChange7d = N(ch);
+  row.oiBasis = oiBasis;
+  row.oiBasisAt = latest ? new Date(latest.t * 1000).toISOString() : null;
+  row.oiSource = oiBasis != null ? "defillama" : null;
+  touchRatio(row);
+}
+function applyFees(row, ex, fe) {
   const sliced = feeSlice((fe || {}).totalDataChart, Date.now());
-  let fees24h = sliced.fees24h, fees7d = sliced.fees7d, feeRatio = sliced.feeRatio, feesDayFallback = sliced.feesDayFallback;
-  if (ex.feesDisplay) { fees24h = null; fees7d = null; feeRatio = null; feesDayFallback = false; }
-  let tvl = N(tv);
-  const observedAt = new Date().toISOString();
+  row.feesAsOf = sliced.feesAsOf;
+  row.fees7dFrom = sliced.fees7dFrom;
+  row.fees7dTo = sliced.fees7dTo;
+  if (ex.feesDisplay) {
+    row.fees24h = null; row.fees7d = null; row.feeRatio = null; row.feesDayFallback = false;
+    return;
+  }
+  row.fees24h = sliced.fees24h;
+  row.fees7d = sliced.fees7d;
+  row.feeRatio = sliced.feeRatio;
+  row.feesDayFallback = sliced.feesDayFallback;
+}
+function settleDeposits(row, ex, ctx) {
+  if (ex.hl_dex && ctx.hl === undefined) return;
+  if (ex.slug === "lighter" && ctx.proto === undefined) return;
+  if (ex.slug !== "popdex" && ex.slug !== "lighter" && !ex.hl_dex && ex.depositsDisplay !== "missing" && ctx.tvl === undefined) return;
+  const observedAt = ctx.observedAt;
   let userDeposits = null, depositsAt = null, depositsSource = null, depositsReason = null;
-  let oiSource = oiBasis != null ? "defillama" : null;
-  if (hl && hl.deposits != null) {
-    userDeposits = hl.deposits; depositsAt = hl.at; depositsSource = "hyperliquid";
-    if (hl.oi != null) { O = hl.oi; oiBasis = hl.oi; oiBasisAt = hl.at; oiSource = "hyperliquid"; }
+  let tvl = ctx.tvl == null ? null : ctx.tvl;
+  if (ctx.hl && ctx.hl.deposits != null) {
+    userDeposits = ctx.hl.deposits; depositsAt = ctx.hl.at; depositsSource = "hyperliquid";
+    if (ctx.hl.oi != null) {
+      row.oi = ctx.hl.oi; row.oiBasis = ctx.hl.oi; row.oiBasisAt = ctx.hl.at; row.oiSource = "hyperliquid";
+    }
   } else if (ex.slug === "popdex") {
     const m = (CFG.manual || {}).popdex || {};
     userDeposits = N(m.userDeposits); depositsAt = m.snapshotAt || null;
     if (userDeposits != null) depositsSource = "manual";
-  } else if (lighter) {
-    const eth = lighterDeposit(proto);
+  } else if (ex.slug === "lighter") {
+    const eth = lighterDeposit(ctx.proto);
     depositsAt = observedAt;
     if (eth.value != null) { userDeposits = eth.value; tvl = eth.value; depositsSource = "tvl"; }
     else depositsReason = eth.reason;
   } else if (ex.depositsDisplay === "missing") {
     depositsReason = "DefiLlama TVL 为空，官方存款接口需要登录";
-  } else if (tvl != null) {
-    userDeposits = tvl; depositsAt = observedAt; depositsSource = "tvl";
+  } else if (ctx.tvl != null) {
+    userDeposits = ctx.tvl; depositsAt = observedAt; depositsSource = "tvl";
   }
-  const site = typeof ex.url === "string" && ex.url.startsWith("https://") ? ex.url : null;
-  return { name: ex.name, slug: ex.slug, url: site, coingecko: ex.coingecko || null, oi: O, oiChange7d: N(ch), oiBasis, oiBasisAt, oiSource, volume24h: null, volume7d: null, volSource: null,
-    fees24h, fees7d, feesAsOf: sliced.feesAsOf, fees7dFrom: sliced.fees7dFrom, fees7dTo: sliced.fees7dTo, feesDayFallback, feesDisplay: ex.feesDisplay || null, feeRatio, tvl,
-    userDeposits, depositsAt, depositsSource, depositsReason, depositsDisplay: ex.depositsDisplay || null, oiToDeposits: userDeposits > 0 && oiBasis != null ? oiBasis / userDeposits : null,
-    token: Object.prototype.hasOwnProperty.call(ex, "token") ? ex.token : undefined, tokenNote: ex.tokenNote || null, verification: ex.verification || null, ...(ex.extra || {}) };
+  row.tvl = tvl;
+  row.userDeposits = userDeposits;
+  row.depositsAt = depositsAt;
+  row.depositsSource = depositsSource;
+  row.depositsReason = depositsReason;
+  touchRatio(row);
+}
+async function one(ex, signal, row) {
+  inflight.add(ex.slug);
+  try { await oneBody(ex, signal, row); }
+  catch (e) { ERR.push({ url: "/" + ex.slug, error: String(e && e.message || e) }); }
+  finally { inflight.delete(ex.slug); }
+}
+async function oneBody(ex, signal, row) {
+  const s = encodeURIComponent(ex.llamaSlug || ex.slug);
+  const lighter = ex.slug === "lighter";
+  const ctx = { tvl: undefined, hl: undefined, proto: undefined, observedAt: new Date().toISOString() };
+  const tasks = [
+    J(`${L}/summary/open-interest/${s}?excludeTotalDataChartBreakdown=true`, 2, undefined, signal).then(oi => applyOi(row, oi)),
+    J(`${L}/summary/fees/${s}?excludeTotalDataChartBreakdown=true`, 2, undefined, signal).then(fe => applyFees(row, ex, fe))
+  ];
+  if (lighter) tasks.push(J(`${L}/protocol/lighter`, 2, "protocol/lighter", signal).then(proto => { ctx.proto = proto; settleDeposits(row, ex, ctx); }));
+  else tasks.push(J(`${L}/tvl/${s}`, 2, undefined, signal).then(tv => { ctx.tvl = N(tv); settleDeposits(row, ex, ctx); }));
+  if (ex.hl_dex) tasks.push(entropyBook(ex.hl_dex, signal).then(hl => { ctx.hl = hl; settleDeposits(row, ex, ctx); }));
+  else ctx.hl = null;
+  if (ex.slug === "popdex" || ex.depositsDisplay === "missing") settleDeposits(row, ex, ctx);
+  await Promise.all(tasks);
+  settleDeposits(row, ex, ctx);
 }
 async function pmVols(rows, signal) {
   const d = await J(`https://perpsmania.com/api/perpdex-stats?ts=${Date.now()}`, 2, "perpsmania", signal);
@@ -421,10 +482,11 @@ function applyPop(rows, pv) {
 }
 async function handler(req, res) {
   const t0 = Date.now(); ERR = [];
-  inflight = new Set(); popProg = { done: 0, total: 0 }; popPartial = null;
+  inflight = new Set(); inflightReq = new Set(); popProg = { done: 0, total: 0 }; popPartial = null;
   const ac = new AbortController();
   setMaxListeners(0, ac.signal);
-  let sent = false, rows = null, hard, phase = "defillama", popSettled = null, degraded = false;
+  let sent = false, hard, phase = "defillama", popSettled = null, degraded = false;
+  const rows = blankRows();
   const finish = (payload) => {
     if (sent) return;
     if (payload && payload.rows) applyHeat(payload.rows);
@@ -439,22 +501,22 @@ async function handler(req, res) {
   };
   hard = setTimeout(() => {
     degraded = true;
+    for (const source of inflightReq) ERR.push({ url: source, error: "timeout" });
     ac.abort();
     const hung = [...inflight];
     let where = phase !== "popdex" && !popPartial ? phase + "+popdex" : phase;
     if (hung.length) where += " hung " + hung.join(",");
     if (popProg.total) where += " popdex " + popProg.done + "/" + popProg.total;
     if (!ERR.some(e => e.url === "/deadline")) ERR.push({ url: "/deadline", error: "handler timeout: " + where });
-    const out = rows || blankRows();
-    applyPop(out, popPartial);
-    finish({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: dedupeErr(ERR), rows: out });
-  }, 44000);
+    applyPop(rows, popPartial);
+    finish({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: dedupeErr(ERR), rows });
+  }, DEADLINE_MS);
   try {
     const popP = CFG.exchanges.some(e => e.slug === "popdex")
       ? popdexVols(ac.signal).then(v => { popSettled = v; return v; })
       : Promise.resolve(null);
     phase = "defillama";
-    rows = await Promise.all(CFG.exchanges.map(ex => one(ex, ac.signal)));
+    await Promise.all(CFG.exchanges.map(ex => one(ex, ac.signal, rows.find(r => r.slug === ex.slug))));
     if (sent) return;
     phase = "perpsmania";
     await pmVols(rows, ac.signal);
@@ -465,15 +527,17 @@ async function handler(req, res) {
     phase = "popdex";
     applyPop(rows, await popP);
     if (sent) return;
-    finish({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: dedupeErr(ERR), rows: rows || blankRows() });
+    finish({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: dedupeErr(ERR), rows });
   } catch (e) {
     if (sent) return;
     ERR.push({ url: "/data", error: String(e && e.message || e) });
-    finish({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: dedupeErr(ERR), rows: rows || blankRows() });
+    finish({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: dedupeErr(ERR), rows });
   }
 }
 handler.feeSlice = feeSlice;
 handler.lighterDeposit = lighterDeposit;
 handler.applyHeat = applyHeat;
 handler.J = J;
+handler.REQ_MS = REQ_MS;
+handler.DEADLINE_MS = DEADLINE_MS;
 module.exports = handler;
