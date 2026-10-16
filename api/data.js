@@ -18,11 +18,30 @@ async function timedFetch(url, options, ms, parent) {
     if (parent.aborted) ac.abort();
     else { onParent = () => ac.abort(); parent.addEventListener("abort", onParent); }
   }
-  try { return await fetch(url, Object.assign({}, options, { signal: ac.signal })); }
-  finally {
+  try {
+    const r = await fetch(url, Object.assign({}, options, { signal: ac.signal }));
+    // fetch() resolves at the headers. Hold the timer until the body is fully read.
+    let text = null, parsed;
+    if (typeof r.text === "function") text = await r.text();
+    else if (typeof r.json === "function") parsed = await r.json();
+    return {
+      ok: r.ok, status: r.status, headers: r.headers, text,
+      json() { return text != null ? JSON.parse(text) : parsed; },
+      body: { cancel: async () => {} }
+    };
+  } finally {
     clearTimeout(timer);
     if (onParent) parent.removeEventListener("abort", onParent);
   }
+}
+function dedupeErr(list) {
+  const seen = new Set(), out = [];
+  for (const e of list) {
+    const k = (e && e.url) + "\0" + (e && e.error);
+    if (seen.has(k)) continue;
+    seen.add(k); out.push(e);
+  }
+  return out;
 }
 function popdexTurnover(tickers) {
   let volume24h = 0, n = 0, bad = false, symbolGap = false;
@@ -178,41 +197,61 @@ async function popdex7d(symbols, signal) {
   if (bad || !uniq.length || ret.some(v => v == null)) return null;
   return ret.reduce((a, b) => a + b, 0);
 }
-async function popdexVols() {
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), 45000);
+async function popdexVols(signal) {
   try {
-    const tickers = await popdexTickers(ac.signal);
+    const tickers = await popdexTickers(signal);
     const summed = popdexTurnover(tickers);
     let v7 = null, error7 = null;
     if (summed.symbolGap || !summed.symbols.length) error7 = "popdex 7d incomplete";
-    else if (ac.signal.aborted) error7 = "popdex 7d timed out";
+    else if (signal && signal.aborted) error7 = "popdex 7d timed out";
     else {
-      v7 = await popdex7d(summed.symbols, ac.signal);
+      v7 = await popdex7d(summed.symbols, signal);
       if (v7 == null) error7 = "popdex 7d incomplete";
     }
     return { volume24h: summed.volume24h, volume7d: v7, error24: summed.error, error7 };
   } catch (e) {
     const msg = String(e && e.message || e);
     return { volume24h: null, volume7d: null, error24: msg, error7: msg };
-  } finally { clearTimeout(timer); }
+  }
+}
+function blankRows() {
+  return CFG.exchanges.map(ex => ({ name: ex.name, slug: ex.slug, coingecko: ex.coingecko || null, oi: null, oiChange7d: null, volume24h: null, volume7d: null, volSource: null, fees24h: null, fees7d: null, revenue24h: null, tvl: null, userDeposits: null, depositsAt: null, oiToDeposits: null }));
 }
 module.exports = async (req, res) => {
   const t0 = Date.now(); ERR = [];
-  const popP = CFG.exchanges.some(e => e.slug === "popdex") ? popdexVols() : Promise.resolve(null);
-  const rows = await Promise.all(CFG.exchanges.map(one));
-  await pmVols(rows);
-  if (rows.some(r => r.coingecko && (r.volume24h == null || r.volume7d == null))) await vols(rows);
-  const pv = await popP;
-  const pr = rows.find(r => r.slug === "popdex");
-  if (pr && pv) {
-    if (pr.volume24h == null && pv.volume24h != null) { pr.volume24h = pv.volume24h; pr.volSource = "popdex"; }
-    if (pr.volume7d == null && pv.volume7d != null) pr.volume7d = pv.volume7d;
-    if (pv.error24) ERR.push({ url: "/popdex", error: pv.error24 });
-    if (pv.error7) ERR.push({ url: "/popdex", error: pv.error7 });
+  const ac = new AbortController();
+  let sent = false, rows = null, hard;
+  const cache = "public, max-age=0, s-maxage=600, stale-while-revalidate=3600";
+  const finish = (payload) => {
+    if (sent) return;
+    sent = true;
+    clearTimeout(hard);
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Cache-Control", cache);
+    res.end(JSON.stringify(payload));
+  };
+  hard = setTimeout(() => {
+    ac.abort();
+    if (!ERR.some(e => e.url === "/deadline")) ERR.push({ url: "/deadline", error: "handler timeout" });
+    finish({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: dedupeErr(ERR), rows: rows || blankRows() });
+  }, 44000);
+  try {
+    const popP = CFG.exchanges.some(e => e.slug === "popdex") ? popdexVols(ac.signal) : Promise.resolve(null);
+    rows = await Promise.all(CFG.exchanges.map(one));
+    await pmVols(rows);
+    if (rows.some(r => r.coingecko && (r.volume24h == null || r.volume7d == null))) await vols(rows);
+    const pv = await popP;
+    const pr = rows && rows.find(r => r.slug === "popdex");
+    if (pr && pv) {
+      if (pr.volume24h == null && pv.volume24h != null) { pr.volume24h = pv.volume24h; pr.volSource = "popdex"; }
+      if (pr.volume7d == null && pv.volume7d != null) pr.volume7d = pv.volume7d;
+      if (pv.error24) ERR.push({ url: "/popdex", error: pv.error24 });
+      if (pv.error7 && pv.error7 !== pv.error24) ERR.push({ url: "/popdex", error: pv.error7 });
+    }
+    finish({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: dedupeErr(ERR), rows: rows || blankRows() });
+  } catch (e) {
+    ERR.push({ url: "/data", error: String(e && e.message || e) });
+    finish({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: dedupeErr(ERR), rows: rows || blankRows() });
   }
-  res.statusCode = 200;
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
-  res.setHeader("Cache-Control", "public, max-age=0, s-maxage=600, stale-while-revalidate=3600");
-  res.end(JSON.stringify({ fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0, errors: ERR, rows }));
 };

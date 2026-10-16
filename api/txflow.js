@@ -18,8 +18,18 @@ async function timedFetch(url, options, ms, parent) {
     if (parent.aborted) ac.abort();
     else { onParent = () => ac.abort(); parent.addEventListener("abort", onParent); }
   }
-  try { return await fetch(url, Object.assign({}, options, { signal: ac.signal })); }
-  finally {
+  try {
+    const r = await fetch(url, Object.assign({}, options, { signal: ac.signal }));
+    // fetch() resolves at the headers. Hold the timer until the body is fully read.
+    let text = null, parsed;
+    if (typeof r.text === "function") text = await r.text();
+    else if (typeof r.json === "function") parsed = await r.json();
+    return {
+      ok: r.ok, status: r.status, headers: r.headers, text,
+      json() { return text != null ? JSON.parse(text) : parsed; },
+      body: { cancel: async () => {} }
+    };
+  } finally {
     clearTimeout(timer);
     if (onParent) parent.removeEventListener("abort", onParent);
   }
@@ -60,17 +70,19 @@ async function info(body, signal) {
   }
   throw new Error(last);
 }
-function notional(candles, start, now) {
+function notional(candles, start7, start24, now) {
   if (!Array.isArray(candles)) return null;
-  let s = 0;
+  let d7 = 0, d24 = 0;
   for (const c of candles) {
     const t = +c.t;
-    if (!Number.isFinite(t) || t < start || t > now) continue;
+    if (!Number.isFinite(t) || t < start7 || t > now) continue;
     const o = +c.o, h = +c.h, l = +c.l, cl = +c.c, v = +c.v;
     if (![o, h, l, cl, v].every(Number.isFinite) || v < 0) return null;
-    s += v * (o + h + l + cl) / 4;
+    const n = v * (o + h + l + cl) / 4;
+    d7 += n;
+    if (t >= start24) d24 += n;
   }
-  return s;
+  return { d7, d24 };
 }
 async function runLimited(jobs, signal) {
   const out = new Array(jobs.length);
@@ -94,7 +106,7 @@ async function runLimited(jobs, signal) {
 }
 async function settle(coins, jobs, signal) {
   const have = new Map();
-  const take = rows => { for (const r of rows) if (r) have.set(r.coin, r.value); };
+  const take = rows => { for (const r of rows) if (r) have.set(r.coin, r); };
   const first = await runLimited(jobs, signal);
   take(first.out);
   let lastError = first.lastError;
@@ -107,9 +119,15 @@ async function settle(coins, jobs, signal) {
     missing = coins.filter(c => !have.has(c));
   }
   if (missing.length || signal.aborted && missing.length) {
-    return { value: null, error: missing.length + "/" + coins.length + " " + (lastError || "incomplete") };
+    return { value: null, day: null, error: missing.length + "/" + coins.length + " " + (lastError || "incomplete") };
   }
-  return { value: coins.reduce((a, c) => a + have.get(c), 0), error: "" };
+  let value = 0, day = 0, hasDay = false;
+  for (const c of coins) {
+    const r = have.get(c);
+    value += r.value;
+    if (r.day != null) { day += r.day; hasDay = true; }
+  }
+  return { value, day: hasDay ? day : null, error: "" };
 }
 async function load(signal) {
   const meta = await info({ type: "perpMeta", dex: "" }, signal);
@@ -117,7 +135,7 @@ async function load(signal) {
   if (!uni) throw new Error("bad perpMeta");
   const coins = uni.filter(u => u && u.name && u.delisted !== true).map(u => u.name);
   if (!coins.length) throw new Error("no perps");
-  const now = Date.now(), start = now - 168 * 3600 * 1000;
+  const now = Date.now(), start7 = now - 168 * 3600 * 1000, start24 = now - 24 * 3600 * 1000;
   const ctxJobs = coins.map(coin => async () => {
     const ctx = await info({ type: "activeAssetCtx", coin }, signal);
     const v = ctx && +ctx.dayNtlVlm;
@@ -125,37 +143,48 @@ async function load(signal) {
     return { coin, value: v };
   });
   const candleJobs = coins.map(coin => async () => {
-    const candles = await info({ type: "candleSnapshot", req: { coin, interval: "1h", startTime: start, endTime: now } }, signal);
-    const v = notional(candles, start, now);
+    const candles = await info({ type: "candleSnapshot", req: { coin, interval: "1h", startTime: start7, endTime: now } }, signal);
+    const v = notional(candles, start7, start24, now);
     if (v == null) throw new Error("bad candles");
-    return { coin, value: v };
+    return { coin, value: v.d7, day: v.d24 };
   });
   const ctx = await settle(coins, ctxJobs, signal);
-  const cd = ctx.value == null && signal.aborted ? { value: null, error: "timeout" } : await settle(coins, candleJobs, signal);
+  const cd = ctx.value == null && signal.aborted ? { value: null, day: null, error: "timeout" } : await settle(coins, candleJobs, signal);
+  const coverage24h = ctx.value > 0 && cd.day != null ? cd.day / ctx.value : null;
   return {
     coins: coins.length,
-    volume24h: ctx.value, volume7d: cd.value,
+    volume24h: ctx.value, volume7d: cd.value, coverage24h,
     error: ctx.value == null ? (ctx.error || "24h failed") : cd.value == null ? (cd.error || "7d failed") : null
   };
 }
 module.exports = async (req, res) => {
   const t0 = Date.now();
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), 260000);
-  let body;
-  try { body = await load(ac.signal); }
-  catch (e) { body = { coins: 0, volume24h: null, volume7d: null, error: String(e && e.message || e) }; }
-  finally { clearTimeout(timer); }
-  const ok = body.volume24h != null && body.volume7d != null;
-  const out = {
-    slug: "txflow-perps", fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0,
-    coins: body.coins, volume24h: body.volume24h, volume7d: body.volume7d,
-    volume7dApprox: body.volume7d != null, error: ok ? null : (body.error || "missing")
+  let sent = false, hard;
+  const finish = (body, ok) => {
+    if (sent) return;
+    sent = true;
+    clearTimeout(hard);
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Cache-Control", ok
+      ? "public, max-age=0, s-maxage=3600, stale-while-revalidate=3600"
+      : "public, max-age=0, s-maxage=300");
+    res.end(JSON.stringify(body));
   };
-  res.statusCode = 200;
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
-  res.setHeader("Cache-Control", ok
-    ? "public, max-age=0, s-maxage=3600, stale-while-revalidate=3600"
-    : "public, max-age=0, s-maxage=300");
-  res.end(JSON.stringify(out));
+  const fail = (error) => finish({
+    slug: "txflow-perps", fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0,
+    coins: 0, volume24h: null, volume7d: null, coverage24h: null, volume7dApprox: false, error: error || "timeout"
+  }, false);
+  hard = setTimeout(() => { ac.abort(); fail("timeout"); }, 255000);
+  try {
+    const body = await load(ac.signal);
+    const ok = body.volume24h != null && body.volume7d != null;
+    finish({
+      slug: "txflow-perps", fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0,
+      coins: body.coins, volume24h: body.volume24h, volume7d: body.volume7d,
+      coverage24h: body.coverage24h, volume7dApprox: body.volume7d != null,
+      error: ok ? null : (body.error || "missing")
+    }, ok);
+  } catch (e) { fail(String(e && e.message || e)); }
 };
