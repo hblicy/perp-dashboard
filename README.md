@@ -1,7 +1,7 @@
 # Perp DEX 数据看板（Vercel 版）
 
 - index.html：页面，打开后读取 /api/data，再单独请求 /api/txflow，并在浏览器里补 Entropy 的 7D
-- api/data.js：服务器端函数，汇总 DefiLlama（OI、手续费）、perpsmania、CoinGecko，以及 PopDEX 官方公开行情。正常结果 Vercel CDN 缓存 10 分钟（s-maxage=600），过期后的 1 小时内先返回旧数据，同时在后台更新（stale-while-revalidate=3600）。整次请求的 44 秒截止会打断这四路。截止时 errors 写明停在哪一路、哪些交易所还挂着，以及 PopDEX 已完成的合约数。24H 已经算完而 7D 还没有时，24H 单独保留。这种不完整结果只缓存 60 秒
+- api/data.js：服务器端函数，汇总 DefiLlama（页面用 OI、手续费；每行仍返回 tvl，供以后做存款分母）、perpsmania、CoinGecko，以及 PopDEX 官方公开行情。正常结果 Vercel CDN 缓存 10 分钟（s-maxage=600），过期后的 1 小时内先返回旧数据，同时在后台更新（stale-while-revalidate=3600）。整次请求的 44 秒截止会打断这四路。截止时 errors 写明停在哪一路、哪些交易所还挂着，以及 PopDEX 已完成的合约数。24H 已经算完而 7D 还没有时，24H 单独保留。这种不完整结果只缓存 60 秒
 - api/txflow.js：只算 TxFlow。最多 3 个并发。成功时 CDN 缓存 1 小时；失败时缓存 5 分钟（s-maxage=300），避免每个访客都把约 468 次请求打到同一出口 IP。合约列表 20 秒内拿不到就直接返回失败，不再干等到 255 秒
 - config.json：交易所列表、DefiLlama slug、CoinGecko id、手工填写的 OI/用户存款
 - vercel.json：api/data.js 最长 60 秒，api/txflow.js 最长 300 秒
