@@ -3,21 +3,26 @@
 body{background:#09090b;color:#d4d4d8;font:14px system-ui,sans-serif;margin:24px}h1{font-size:20px;color:#fafafa}
 table{border-collapse:collapse;width:100%;border:1px solid #27272a}th,td{padding:8px 10px;border-bottom:1px solid #18181b;text-align:right;white-space:nowrap}
 th{color:#a1a1aa;cursor:pointer;user-select:none;background:#111113}th:first-child,td:first-child{text-align:left;color:#fafafa}
+.tablewrap{overflow-x:auto;max-width:100%}
+th.note,td.note{white-space:normal;text-align:left;vertical-align:top}
+.notebody{width:9rem;min-width:9rem;max-width:9rem;white-space:normal;overflow-wrap:anywhere;font-size:12px;line-height:1.35}
+@media(max-width:640px){body{margin:12px}.notebody{width:7.5rem;min-width:7.5rem;max-width:7.5rem}}
 tr:hover td{background:#141417}.pos{color:#4ade80}.neg{color:#f87171}.muted{color:#71717a;font-size:12px}
 </style></head><body><h1>Perp DEX 数据看板</h1>
-<div class="muted" id="meta">加载中…</div><br><table><thead><tr id="hd"></tr></thead><tbody id="bd"></tbody></table>
+<div class="muted" id="meta">加载中…</div><br><div class="tablewrap"><table><thead><tr id="hd"></tr></thead><tbody id="bd"></tbody></table></div>
 <p class="muted">数据来源：DefiLlama 公共 API（OI、手续费）；交易量优先来自 perpsmania（各交易所原生 API 汇总），缺失时用 CoinGecko（7D 为每日滚动 24h 量之和，近似；服务器拿不到时由浏览器补齐）。PopDEX 交易量来自官方公开 API，以 USDT 计价（单边还是双边未核实）；24H/7D 必须每条都有效，否则该格显示“缺失”，不用少算的合计。TxFlow 24H 为各永续 dayNtlVlm 之和，7D 标“近似”（悬停看说明），取不到时显示“缺失”。Entropy 24H 来自 Hyperliquid 官方 API，7D 为未下架合约滚动 168 小时 K 线估算（标“近似”）。Hyperliquid 一行的 24H（perpsmania）很可能已经包含 HIP-3 子所（包括 Entropy），不要把这两行的交易量相加。OI/用户存款为手工快照（见 config.json manual）。手续费为基础档费率，悬停看说明、点击打开官方来源。— 表示无数据。点表头排序。</p>
 <script>
 const SNAP=null;
-const COLS=[["name","交易所","s"],["oi","持仓量 OI","$"],["oiChange7d","OI 7日变化","%"],["volume24h","24H 交易量","$"],["volume7d","7D 交易量","$"],["fees24h","24H 手续费","$"],["fees7d","7D 手续费","$"],["oiToDeposits","OI/用户存款","x"],["fee","手续费 (Maker/Taker)","fee"]];
+const COLS=[["name","交易所","s"],["oi","持仓量 OI","$"],["oiChange7d","OI 7日变化","%"],["volume24h","24H 交易量","$"],["volume7d","7D 交易量","$"],["fees24h","24H 手续费","$"],["fees7d","7D 手续费","$"],["oiToDeposits","OI/用户存款","x"],["fee","手续费 (Maker/Taker)","fee"],["note","备注","note"]];
 let rows=[],sk="oi",sd=-1;
 const f$=v=>{if(v==null)return"—";const a=Math.abs(v),n=(x,d)=>x.toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});return a>=1e9?"$"+n(v/1e9,2)+"B":a>=1e6?"$"+n(v/1e6,1)+"M":a>=1e3?"$"+n(v/1e3,1)+"k":"$"+n(v,0)};
 const esc=x=>String(x).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
 function approxTip(r){if(r.slug!="txflow-perps")return "滚动 168 小时，K 线成交量 × OHLC 均价估算";if(r.volCoverage!=null&&isFinite(r.volCoverage)){const p=(r.volCoverage*100).toFixed(1),gap=(1-r.volCoverage)*100,dir=gap>=0?"约低 "+gap.toFixed(1)+"%":"约高 "+(-gap).toFixed(1)+"%";return "估算。恰好 24 小时的 K 线覆盖官方 dayNtlVlm 的 "+p+"%（"+dir+"，会波动）。起始那根跨过 24 小时边界的 K 线只按落在窗口内的分钟比例计入。K 线基础币成交量低于 dayNtlVlm"}return "估算。约低 2–8%，会波动。K 线基础币成交量低于 dayNtlVlm"}
-function cell(c,r){const v=r[c[0]];if(c[2]=="s")return v;if(c[2]=="fee"){if(!v||!v.maker)return"—";return `<a href="${esc(v.source)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline dotted" title="${esc(v.note+"\n来源："+v.source+"\n截至："+v.asOf)}">${esc(v.maker)} / ${esc(v.taker)}</a>`}if((c[0]=="volume24h"||c[0]=="volume7d")&&v==null&&r.slug=="popdex")return "缺失";if((c[0]=="volume24h"||c[0]=="volume7d")&&v==null&&r.slug=="txflow-perps"&&r.txState)return r.txState=="pending"?"…":"缺失";if(v==null)return"—";if(c[2]=="%")return`<span class="${v>=0?"pos":"neg"}">${v>=0?"+":""}${(v*100).toFixed(1)}%</span>`;if(c[2]=="x")return v.toFixed(2)+"x"+(r.depositsAt?` <span class=muted>(${r.depositsAt})</span>`:"");if(c[0]=="volume7d"&&r.volume7dApprox)return f$(v)+` <span style="color:#fbbf24;font-size:11px" title="${esc(approxTip(r))}">近似</span>`;return f$(v)}
-function draw(){document.getElementById("hd").innerHTML=COLS.map(c=>`<th data-k="${c[0]}">${c[1]}${sk==c[0]?(sd>0?" ▲":" ▼"):""}</th>`).join("");
-const V=(r,k)=>k=="fee"?(r.fee&&isFinite(parseFloat(r.fee.taker))?parseFloat(r.fee.taker):null):r[k];const s=[...rows].sort((a,b)=>{const x=V(a,sk),y=V(b,sk);if(x==null)return 1;if(y==null)return-1;return(typeof x=="string"?x.localeCompare(y):x-y)*sd});
-document.getElementById("bd").innerHTML=s.map(r=>"<tr>"+COLS.map(c=>`<td>${cell(c,r)}</td>`).join("")+"</tr>").join("");
+function noteCell(r){const t=r.note==null?"":String(r.note).trim();const u=r.noteUrl==null?"":String(r.noteUrl).trim();const body=!t?"—":(/^https?:\/\//i.test(u)?`<a href="${esc(u)}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline dotted">${esc(t)}</a>`:esc(t));return `<div class="notebody">${body}</div>`}
+function cell(c,r){const v=r[c[0]];if(c[2]=="s")return v;if(c[2]=="fee"){if(!v||!v.maker)return"—";return `<a href="${esc(v.source)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline dotted" title="${esc(v.note+"\n来源："+v.source+"\n截至："+v.asOf)}">${esc(v.maker)} / ${esc(v.taker)}</a>`}if(c[2]=="note")return noteCell(r);if((c[0]=="volume24h"||c[0]=="volume7d")&&v==null&&r.slug=="popdex")return "缺失";if((c[0]=="volume24h"||c[0]=="volume7d")&&v==null&&r.slug=="txflow-perps"&&r.txState)return r.txState=="pending"?"…":"缺失";if(v==null)return"—";if(c[2]=="%")return`<span class="${v>=0?"pos":"neg"}">${v>=0?"+":""}${(v*100).toFixed(1)}%</span>`;if(c[2]=="x")return v.toFixed(2)+"x"+(r.depositsAt?` <span class=muted>(${r.depositsAt})</span>`:"");if(c[0]=="volume7d"&&r.volume7dApprox)return f$(v)+` <span style="color:#fbbf24;font-size:11px" title="${esc(approxTip(r))}">近似</span>`;return f$(v)}
+function draw(){document.getElementById("hd").innerHTML=COLS.map(c=>`<th data-k="${c[0]}"${c[2]=="note"?" class=note":""}>${c[1]}${sk==c[0]?(sd>0?" ▲":" ▼"):""}</th>`).join("");
+const V=(r,k)=>k=="fee"?(r.fee&&isFinite(parseFloat(r.fee.taker))?parseFloat(r.fee.taker):null):k=="note"?(r.note&&String(r.note).trim()?String(r.note).trim():null):r[k];const s=[...rows].sort((a,b)=>{const x=V(a,sk),y=V(b,sk);if(x==null)return 1;if(y==null)return-1;return(typeof x=="string"?x.localeCompare(y):x-y)*sd});
+document.getElementById("bd").innerHTML=s.map(r=>"<tr>"+COLS.map(c=>`<td${c[2]=="note"?" class=note":""}>${cell(c,r)}</td>`).join("")+"</tr>").join("");
 document.querySelectorAll("th").forEach(t=>t.onclick=()=>{const k=t.dataset.k;sd=sk==k?-sd:-1;sk=k;draw()})}
 // 服务器拿不到 CoinGecko 交易量时，浏览器用自己的 IP 补上；7D 逐个加载，并缓存在 localStorage（1 小时）
 const CGID0={"hyperliquid": "hyperliquid", "lighter": "lighter", "lighter-robinhood-perps": "robinhood-chain-lighter-futures", "arcus": "arcus-futures", "nado": "nado", "bulk": "bulk", "risex": "risex", "variational": "variational-omni", "qfex": "qfex", "extended-perps": "extended"},G="https://api.coingecko.com/api/v3";
@@ -56,7 +61,7 @@ function txflow(){const row=()=>rows.find(x=>x.slug=="txflow-perps");const mark=
  if(d&&d.volume7d!=null&&r.volume7d==null){r.volume7d=d.volume7d;r.volume7dApprox=true}if(d&&d.coverage24h!=null&&isFinite(+d.coverage24h))r.volCoverage=+d.coverage24h
  if(!d||d.volume24h==null||d.volume7d==null)r.txState="missing";
 }catch(e){const r=row();if(r)r.txState="missing"}finally{txFlight=null;draw()}})()}
-async function enrich(){const c=await cfgx();for(const r of rows){const e=(c.exchanges||[]).find(x=>x.slug==r.slug);if(e){if(e.fee)r.fee=e.fee;if(e.hl_dex)r.hl_dex=e.hl_dex}}draw();hip3()}
+async function enrich(){const c=await cfgx();for(const r of rows){const e=(c.exchanges||[]).find(x=>x.slug==r.slug);if(e){if(e.fee)r.fee=e.fee;if(e.hl_dex)r.hl_dex=e.hl_dex;r.note=e.note||"";if(e.noteUrl)r.noteUrl=e.noteUrl}}draw();hip3()}
 function show(d){rows=d.rows;document.getElementById("meta").textContent="更新时间："+new Date(d.fetchedAt).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai"})+"（北京时间）"+(SNAP?"｜静态快照":"｜服务器缓存 10 分钟，页面每 10 分钟自动刷新");draw();fillVol();enrich();txflow()}
 async function load(){try{show(await (await fetch("/api/data",{cache:"no-store"})).json())}catch(e){document.getElementById("meta").textContent="加载失败："+e}}
 if(SNAP)show(SNAP);else{load();setInterval(load,600000)}

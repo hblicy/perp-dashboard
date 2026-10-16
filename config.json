@@ -6,6 +6,7 @@
       "slug": "hyperliquid",
       "coingecko": "hyperliquid",
       "perpsmania": "hyperliquid",
+      "note": "",
       "fee": {
         "maker": "0.015%",
         "taker": "0.045%",
@@ -19,6 +20,7 @@
       "slug": "lighter",
       "coingecko": "lighter",
       "perpsmania": "lighter",
+      "note": "",
       "fee": {
         "maker": "0%",
         "taker": "0%",
@@ -31,6 +33,7 @@
       "name": "Lighter (Robinhood Chain)",
       "slug": "lighter-robinhood-perps",
       "coingecko": "robinhood-chain-lighter-futures",
+      "note": "",
       "fee": {
         "maker": "0%",
         "taker": "0%",
@@ -44,6 +47,7 @@
       "slug": "arcus",
       "coingecko": "arcus-futures",
       "perpsmania": "arcus",
+      "note": "",
       "fee": {
         "maker": "0%",
         "taker": "0.0225%",
@@ -55,6 +59,7 @@
     {
       "name": "PopDEX",
       "slug": "popdex",
+      "note": "",
       "fee": {
         "maker": "0.010%",
         "taker": "0.032%",
@@ -68,6 +73,7 @@
       "slug": "nado",
       "coingecko": "nado",
       "perpsmania": "nado",
+      "note": "",
       "fee": {
         "maker": "0.01%",
         "taker": "0.035%",
@@ -81,6 +87,7 @@
       "slug": "bulk",
       "coingecko": "bulk",
       "perpsmania": "bulk",
+      "note": "",
       "fee": {
         "maker": "0%",
         "taker": "0.035%",
@@ -94,6 +101,7 @@
       "slug": "risex",
       "coingecko": "risex",
       "perpsmania": "risex",
+      "note": "",
       "fee": {
         "maker": "0.01%",
         "taker": "0.03%",
@@ -107,6 +115,7 @@
       "slug": "variational",
       "coingecko": "variational-omni",
       "perpsmania": "variational",
+      "note": "",
       "fee": {
         "maker": "0%",
         "taker": "0%",
@@ -120,6 +129,7 @@
       "slug": "qfex",
       "coingecko": "qfex",
       "perpsmania": "qfex",
+      "note": "",
       "fee": {
         "maker": "0.02%",
         "taker": "0.05%",
@@ -131,6 +141,7 @@
     {
       "name": "TxFlow",
       "slug": "txflow-perps",
+      "note": "",
       "fee": {
         "maker": "0.015%",
         "taker": "0.045%",
@@ -144,6 +155,7 @@
       "slug": "extended-perps",
       "coingecko": "extended",
       "perpsmania": "extended",
+      "note": "",
       "fee": {
         "maker": "0%",
         "taker": "0.025%",
@@ -157,6 +169,7 @@
       "slug": "entropy.io",
       "hl_dex": "io",
       "url": "https://entropy.io",
+      "note": "",
       "fee": {
         "maker": "0.003%",
         "taker": "0.009%",
@@ -170,6 +183,7 @@
       "slug": "pacifica",
       "coingecko": "pacifica",
       "perpsmania": "pacifica",
+      "note": "",
       "fee": {
         "maker": "0.015%",
         "taker": "0.040%",

@@ -21,4 +21,4 @@
 4. Vercel 项目设置里 Framework Preset 选 Other，Build Command 和 Output Directory 留空。
 
 ## 修改交易所或数据
-直接在 GitHub 上编辑 config.json：exchanges 里每项是 {"name","slug"(DefiLlama),"coingecko"(可选)}；manual 里按 slug 填 userDeposits 和 snapshotAt。提交后自动重新部署。
+直接在 GitHub 上编辑 config.json：exchanges 里每项是 {"name","slug"(DefiLlama),"coingecko"(可选)}；manual 里按 slug 填 userDeposits 和 snapshotAt。备注写在该交易所的 "note"（空着页面显示 —），可选 "noteUrl" 作为来源链接，例如 "note": "一句话理由", "noteUrl": "https://example.com"。不要写在 fee.note 里，那是手续费悬停说明。提交后自动重新部署。
