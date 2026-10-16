@@ -54,7 +54,8 @@ const draftNotes = {
   "ondo-perps": "阶段未公布，周500万分，分发日未公布"
 };
 for (const [slug, note] of Object.entries(draftNotes)) assert.equal(by(slug).note, note, slug);
-assert.equal(by("lighter-robinhood-perps").fee.note.includes("Robinhood Chain 版限制中国等 18 个地区"), true);
+assert.equal(by("lighter-robinhood-perps").fee.note.includes("18 个地区"), false);
+assert.equal(by("lighter-robinhood-perps").fee.note.endsWith("新闻稿称费率优惠由 Lighter 决定）"), true);
 
 const risex = by("risex");
 assert.equal(risex.note, "S1阶段，周20万分，周二分发");

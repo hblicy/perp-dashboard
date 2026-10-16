@@ -41,7 +41,7 @@
       "fee": {
         "maker": "0%",
         "taker": "0%",
-        "note": "Standard 账户目前 0 maker / 0 taker（10/16 查 Lighter 费率文档，是通用页面，没有专门写 RH；新闻稿称费率优惠由 Lighter 决定）。注意：Robinhood Chain 版限制中国等 18 个地区（Lighter RH 积分条款第 6 条）",
+        "note": "Standard 账户目前 0 maker / 0 taker（10/16 查 Lighter 费率文档，是通用页面，没有专门写 RH；新闻稿称费率优惠由 Lighter 决定）",
         "source": "https://docs.lighter.xyz/trading/trading-fees",
         "asOf": "2026-10-16"
       }
