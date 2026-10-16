@@ -40,7 +40,7 @@ const by = slug => cfg.exchanges.find(e => e.slug === slug);
 const draftNotes = {
   hyperliquid: "已发币",
   lighter: "已发币",
-  "lighter-robinhood-perps": "阶段未公布，周积分未公布，周五分发",
+  "lighter-robinhood-perps": "LIT奖励池1100万，周积分未公布，周五分发",
   arcus: "S1阶段，周25万分，周四分发",
   popdex: "无积分计划",
   nado: "S2阶段，周30万–95万分，分发日未公布",
@@ -54,6 +54,9 @@ const draftNotes = {
   "ondo-perps": "阶段未公布，周500万分，分发日未公布"
 };
 for (const [slug, note] of Object.entries(draftNotes)) assert.equal(by(slug).note, note, slug);
+assert.equal(by("lighter-robinhood-perps").note, "LIT奖励池1100万，周积分未公布，周五分发");
+assert.equal(cfg.exchanges.every(e => !e.fee || !String(e.fee.note || "").includes("实时确认")), true);
+assert.equal(cfg.exchanges.every(e => !/https?:\/\//.test(String(e.note || "")) && !(e.fee && /https?:\/\//.test(String(e.fee.note || "")))), true);
 assert.equal(by("lighter-robinhood-perps").fee.note.includes("18 个地区"), false);
 assert.equal(by("lighter-robinhood-perps").fee.note.endsWith("新闻稿称费率优惠由 Lighter 决定）"), true);
 

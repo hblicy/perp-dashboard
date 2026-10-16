@@ -37,7 +37,7 @@
       "token": "LIT",
       "slug": "lighter-robinhood-perps",
       "coingecko": "robinhood-chain-lighter-futures",
-      "note": "阶段未公布，周积分未公布，周五分发",
+      "note": "LIT奖励池1100万，周积分未公布，周五分发",
       "fee": {
         "maker": "0%",
         "taker": "0%",
@@ -55,7 +55,7 @@
       "fee": {
         "maker": "0%",
         "taker": "0.0225%",
-        "note": "Beta 期间优惠价（标准价 0.015%/0.045%），官方 API /v1/feetiers 实时确认",
+        "note": "Beta 期间优惠价（标准价 0.015%/0.045%），10/16 核验",
         "source": "https://help.arcus.xyz/faq/arcus-perps-faq/fees/what-are-the-perp-fee-tiers",
         "asOf": "2026-10-14"
       }
@@ -95,7 +95,7 @@
       "fee": {
         "maker": "0%",
         "taker": "0.035%",
-        "note": "Phase 1 费率（官方 API /feeState 显示当前生效）；Phase 2 起 maker 0.02%",
+        "note": "Phase 1 费率（官方 API 10/16 查 /feeState 仍为 Phase 1、无切换排期）；Phase 2 起 maker 0.02%",
         "source": "https://docs.bulk.trade/bulk-exchange/fees",
         "asOf": "2026-10-14"
       }
