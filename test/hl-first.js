@@ -1,4 +1,4 @@
-// Hyperliquid can return before DefiLlama. The 7-day change still comes from the chart.
+// Hyperliquid can return before DefiLlama. Entropy OI stays the live book; its 7-day change stays missing.
 // Run: node test/hl-first.js
 const assert = require("assert");
 const data = require("../api/data.js");
@@ -69,12 +69,12 @@ call().then(res => {
   assert.equal(row.oiSource, "hyperliquid");
   assert.equal(row.oi, 10);
   assert.equal(row.oiBasis, 10);
-  assert.notEqual(row.oiChange7d, null);
-  assert.equal(+(row.oiChange7d * 100).toFixed(1), 15);
+  assert.equal(row.oiChange7d, null);
+  assert.notEqual(row.oi, 115);
   assert.ok(Date.now() - t0 >= DELAY_MS - 50, "DefiLlama was not delayed");
   assert.ok(payload.tookMs < data.DEADLINE_MS);
   assert.equal(res.headers["cache-control"], "public, max-age=0, s-maxage=600, stale-while-revalidate=3600");
-  console.log("hl-first ok oiChange7d=" + row.oiChange7d + " tookMs=" + payload.tookMs);
+  console.log("hl-first ok oi=" + row.oi + " tookMs=" + payload.tookMs);
 }).catch(err => {
   global.fetch = orig;
   console.error(err);

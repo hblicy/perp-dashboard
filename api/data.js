@@ -369,26 +369,55 @@ let popShared = null;
 function touchRatio(row) {
   row.oiToDeposits = row.userDeposits > 0 && row.oiBasis != null ? row.oiBasis / row.userDeposits : null;
 }
-function applyOi(row, oi) {
-  if (!oi) return;
-  const today = feeWindow(Date.now()).today;
-  const pts = ((oi.totalDataChart) || []).filter(c => utcDay(c[0]) != null && utcDay(c[0]) < today).sort((a, b) => a[0] - b[0]);
-  let o = null, ch = null;
-  if (pts.length) {
-    const l = pts[pts.length - 1];
-    o = l[1];
-    const p = pts.find(c => utcDay(c[0]) === utcDay(l[0]) - 604800);
-    ch = p && p[1] > 0 ? l[1] / p[1] - 1 : null;
+// Chart samples stay null when the upstream value is null, blank, or not a number. Unary plus would turn those into 0.
+function rawNum(raw) {
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
+  if (typeof raw === "string" && raw.trim()) {
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
   }
-  row.oiChange7d = N(ch);
-  if (row.slug === "popdex") return;
-  if (row.oiSource === "hyperliquid" || row.oiSource === "popdex") return;
-  const latest = newestPoint(oi.totalDataChart);
-  const oiBasis = latest ? latest.v : N(oi.total24h);
-  row.oi = o != null ? N(o) : N(oi.total24h);
-  row.oiBasis = oiBasis;
-  row.oiBasisAt = latest ? new Date(latest.t * 1000).toISOString() : null;
-  row.oiSource = oiBasis != null ? "defillama" : null;
+  return null;
+}
+function pointOnDay(chart, day) {
+  let best = null;
+  for (const p of chart || []) {
+    if (!p || p.length < 2) continue;
+    if (utcDay(p[0]) !== day) continue;
+    let t = +p[0];
+    if (!Number.isFinite(t)) continue;
+    if (t > 1e12) t = Math.floor(t / 1000);
+    const v = rawNum(p[1]);
+    if (!best || t >= best.t) best = { t, v, day };
+  }
+  return best;
+}
+// Last closed UTC day is yesterday. A missing or null sample stays missing: no total24h, no older day.
+function closedUtcPoint(chart, nowMs) {
+  const today = feeWindow(nowMs).today;
+  return pointOnDay(chart, today - 86400);
+}
+function applyOi(row, oi, nowMs) {
+  if (!row) return;
+  if (row.slug === "popdex") { row.oiChange7d = null; return; }
+  if (row.oiSource === "hyperliquid" || row.oiSource === "popdex") { row.oiChange7d = null; return; }
+  if (!oi) return;
+  const now = nowMs == null ? Date.now() : nowMs;
+  const pt = closedUtcPoint(oi.totalDataChart, now);
+  if (!pt || pt.v == null) {
+    row.oi = null; row.oiBasis = null; row.oiBasisAt = null; row.oiSource = null; row.oiChange7d = null;
+    touchRatio(row);
+    return;
+  }
+  row.oi = pt.v;
+  row.oiBasis = pt.v;
+  row.oiBasisAt = new Date(pt.t * 1000).toISOString();
+  row.oiSource = "defillama";
+  if (row.slug === "entropy.io") row.oiChange7d = null;
+  else {
+    const prev = pointOnDay(oi.totalDataChart, pt.day - 7 * 86400);
+    const ch = prev && prev.v != null && prev.v > 0 ? pt.v / prev.v - 1 : null;
+    row.oiChange7d = Number.isFinite(ch) ? ch : null;
+  }
   touchRatio(row);
 }
 function applyFees(row, ex, fe) {
@@ -696,6 +725,8 @@ async function handler(req, res) {
   }
 }
 handler.feeSlice = feeSlice;
+handler.applyOi = applyOi;
+handler.touchRatio = touchRatio;
 handler.lighterDeposit = lighterDeposit;
 handler.applyHeat = applyHeat;
 handler.popdexDeposits = popdexDeposits;

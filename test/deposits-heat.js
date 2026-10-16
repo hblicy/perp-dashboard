@@ -139,7 +139,9 @@ assert.equal(lighterTvl.includes("过期"), false);
 assert.equal(api.depTip({ slug: "lighter", depositsSource: "tvl", oiBasis: 1, userDeposits: eth }).includes("Ethereum"), true);
 
 const entropySame = api.depTip({ slug: "entropy.io", depositsSource: "hyperliquid", oiSource: "hyperliquid", oiBasis: 1, userDeposits: 2, depositsAt: "t" });
-assert.equal(entropySame.includes("来自 Hyperliquid，同一时刻"), true);
+assert.equal(entropySame.includes("同一时刻"), false);
+assert.equal(entropySame.includes("不把分子和分母说成同一快照"), true);
+assert.equal(entropySame.includes("perpDexStatus"), true);
 assert.equal(api.depCell({ slug: "entropy.io", depositsSource: "hyperliquid", oiSource: "hyperliquid", oiToDeposits: 0.5 }).includes(">TVL<"), false);
 
 const entropySplit = api.depTip({ slug: "entropy.io", depositsSource: "hyperliquid", oiSource: "defillama", oiBasis: 1, userDeposits: 2, oiBasisAt: "a", depositsAt: "b" });
