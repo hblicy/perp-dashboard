@@ -6,10 +6,10 @@ th{color:#a1a1aa;cursor:pointer;user-select:none;background:#111113}th:first-chi
 tr:hover td{background:#141417}.pos{color:#4ade80}.neg{color:#f87171}.muted{color:#71717a;font-size:12px}
 </style></head><body><h1>Perp DEX 数据看板</h1>
 <div class="muted" id="meta">加载中…</div><br><table><thead><tr id="hd"></tr></thead><tbody id="bd"></tbody></table>
-<p class="muted">数据来源：DefiLlama 公共 API（OI、手续费、收入、TVL）；交易量优先来自 perpsmania（各交易所原生 API 汇总），缺失时用 CoinGecko（7D 为每日滚动 24h 量之和，近似；服务器拿不到时由浏览器补齐）。PopDEX 交易量来自官方公开 API，以 USDT 计价（单边还是双边未核实）；24H/7D 必须每条都有效，否则该格显示“缺失”，不用少算的合计。TxFlow 24H 为各永续 dayNtlVlm 之和，7D 标“近似”（悬停看说明），取不到时显示“缺失”。Entropy 24H 来自 Hyperliquid 官方 API，7D 为未下架合约滚动 168 小时 K 线估算（标“近似”）。Hyperliquid 一行的 24H（perpsmania）很可能已经包含 HIP-3 子所（包括 Entropy），不要把这两行的交易量相加。OI/用户存款为手工快照（见 config.json manual）。手续费为基础档费率，悬停看说明、点击打开官方来源。— 表示无数据。点表头排序。</p>
+<p class="muted">数据来源：DefiLlama 公共 API（OI、手续费）；交易量优先来自 perpsmania（各交易所原生 API 汇总），缺失时用 CoinGecko（7D 为每日滚动 24h 量之和，近似；服务器拿不到时由浏览器补齐）。PopDEX 交易量来自官方公开 API，以 USDT 计价（单边还是双边未核实）；24H/7D 必须每条都有效，否则该格显示“缺失”，不用少算的合计。TxFlow 24H 为各永续 dayNtlVlm 之和，7D 标“近似”（悬停看说明），取不到时显示“缺失”。Entropy 24H 来自 Hyperliquid 官方 API，7D 为未下架合约滚动 168 小时 K 线估算（标“近似”）。Hyperliquid 一行的 24H（perpsmania）很可能已经包含 HIP-3 子所（包括 Entropy），不要把这两行的交易量相加。OI/用户存款为手工快照（见 config.json manual）。手续费为基础档费率，悬停看说明、点击打开官方来源。— 表示无数据。点表头排序。</p>
 <script>
 const SNAP=null;
-const COLS=[["name","交易所","s"],["oi","持仓量 OI","$"],["oiChange7d","OI 7日变化","%"],["volume24h","24H 交易量","$"],["volume7d","7D 交易量","$"],["fees24h","24H 手续费","$"],["fees7d","7D 手续费","$"],["revenue24h","24H 收入","$"],["tvl","TVL","$"],["oiToDeposits","OI/用户存款","x"],["fee","手续费 (Maker/Taker)","fee"]];
+const COLS=[["name","交易所","s"],["oi","持仓量 OI","$"],["oiChange7d","OI 7日变化","%"],["volume24h","24H 交易量","$"],["volume7d","7D 交易量","$"],["fees24h","24H 手续费","$"],["fees7d","7D 手续费","$"],["oiToDeposits","OI/用户存款","x"],["fee","手续费 (Maker/Taker)","fee"]];
 let rows=[],sk="oi",sd=-1;
 const f$=v=>{if(v==null)return"—";const a=Math.abs(v),n=(x,d)=>x.toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});return a>=1e9?"$"+n(v/1e9,2)+"B":a>=1e6?"$"+n(v/1e6,1)+"M":a>=1e3?"$"+n(v/1e3,1)+"k":"$"+n(v,0)};
 const esc=x=>String(x).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));

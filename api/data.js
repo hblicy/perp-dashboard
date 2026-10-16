@@ -102,16 +102,16 @@ async function one(ex, signal) {
 }
 async function oneBody(ex, signal) {
   const s = encodeURIComponent(ex.slug);
-  const [oi, fe, rv, tv] = await Promise.all([
+  const [oi, fe] = await Promise.all([
     J(`${L}/summary/open-interest/${s}?excludeTotalDataChartBreakdown=true`, 2, undefined, signal),
-    J(`${L}/summary/fees/${s}?${Q}`, 2, undefined, signal), J(`${L}/summary/fees/${s}?dataType=dailyRevenue&${Q}`, 2, undefined, signal), J(`${L}/tvl/${s}`, 2, undefined, signal)]);
+    J(`${L}/summary/fees/${s}?${Q}`, 2, undefined, signal)]);
   const today = Math.floor(Date.now() / 864e5) * 86400;
   const pts = ((oi || {}).totalDataChart || []).filter(c => c[0] < today).sort((a, b) => a[0] - b[0]);
   let o = null, ch = null;
   if (pts.length) { const l = pts[pts.length - 1]; o = l[1]; const p = pts.find(c => c[0] === l[0] - 604800); ch = p && p[1] > 0 ? l[1] / p[1] - 1 : null; }
   const m = (CFG.manual || {})[ex.slug] || {}, dep = N(m.userDeposits), O = o != null ? N(o) : N((oi || {}).total24h);
   return { name: ex.name, slug: ex.slug, coingecko: ex.coingecko || null, oi: O, oiChange7d: N(ch), volume24h: null, volume7d: null, volSource: null,
-    fees24h: N((fe || {}).total24h), fees7d: N((fe || {}).total7d), revenue24h: N((rv || {}).total24h), tvl: N(tv),
+    fees24h: N((fe || {}).total24h), fees7d: N((fe || {}).total7d),
     userDeposits: dep, depositsAt: m.snapshotAt || null, oiToDeposits: dep && O != null ? O / dep : null, ...(ex.extra || {}) };
 }
 async function pmVols(rows, signal) {
@@ -236,7 +236,7 @@ async function popdexVols(signal) {
   }
 }
 function blankRows() {
-  return CFG.exchanges.map(ex => ({ name: ex.name, slug: ex.slug, coingecko: ex.coingecko || null, oi: null, oiChange7d: null, volume24h: null, volume7d: null, volSource: null, fees24h: null, fees7d: null, revenue24h: null, tvl: null, userDeposits: null, depositsAt: null, oiToDeposits: null }));
+  return CFG.exchanges.map(ex => ({ name: ex.name, slug: ex.slug, coingecko: ex.coingecko || null, oi: null, oiChange7d: null, volume24h: null, volume7d: null, volSource: null, fees24h: null, fees7d: null, userDeposits: null, depositsAt: null, oiToDeposits: null }));
 }
 function applyPop(rows, pv) {
   const pr = rows && rows.find(r => r.slug === "popdex");
