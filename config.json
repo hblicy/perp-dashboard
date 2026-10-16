@@ -125,10 +125,10 @@
         }
       ],
       "costPerPoint": {
-        "display": "口径不一：只算手续费 $0.66–$2；含对冲腿 2.6U",
+        "display": "S1 第 2 周，按口径分组、不给中位数：只算手续费 $0.66（1 条，带邀请）；含对冲腿的双边总磨损 2.6U（1 条）；没给口径 $2（1 条）；平台汇总 $2（只算手续费，带邀请）",
         "samples": 3,
         "date": "2026-10-15",
-        "basis": "S1第2周；只算手续费 $0.66（1条）、平台汇总 $2（手续费÷总分）；含对冲腿双边总磨损 2.6U（1条）；未给口径 $2（1条）；不给中位数",
+        "basis": "S1 第 2 周，按口径分组、不给中位数：只算手续费 $0.66（1 条，带邀请）；含对冲腿的双边总磨损 2.6U（1 条）；没给口径 $2（1 条）；平台汇总 $2（只算手续费，带邀请）",
         "referral": true,
         "sources": [
           {
@@ -234,6 +234,18 @@
           "url": "https://x.com/bulktrade/status/2108905680669147311"
         },
         {
+          "label": "@bulktrade 5/22 调侃式引用",
+          "url": "https://x.com/bulktrade/status/2057773117012062353"
+        },
+        {
+          "label": "@bulktrade 10/10 联赛奖池 12.5% 净手续费",
+          "url": "https://x.com/bulktrade/status/2108905678181912679"
+        },
+        {
+          "label": "BULK /feeState 公开接口",
+          "url": "https://mainnet-api1.bulk.trade/api/v1/feeState"
+        },
+        {
           "label": "BULK Fees",
           "url": "https://docs.bulk.trade/bulk-exchange/fees"
         }
@@ -268,7 +280,7 @@
       "slug": "risex",
       "coingecko": "risex",
       "perpsmania": "risex",
-      "note": "未发币；S1呸20万分；Impact池：单笔吃单≥$5万，超1bp滑点按比例分",
+      "note": "未发币；S1周20万分；Impact池：单笔吃单≥$5万，超1bp滑点按比例分",
       "noteSources": [
         {
           "label": "Points",
