@@ -77,7 +77,7 @@
       "slug": "nado",
       "coingecko": "nado",
       "perpsmania": "nado",
-      "note": "S2阶段，周30万–95万分，分发日未公布",
+      "note": "S2阶段，周30万–95万分，周五分发",
       "fee": {
         "maker": "0.01%",
         "taker": "0.035%",
@@ -195,7 +195,7 @@
       "depositsDisplay": "missing",
       "coingecko": "ondo-perps",
       "perpsmania": "ondo",
-      "note": "阶段未公布，周500万分，分发日未公布",
+      "note": "阶段未公布，周500万分，周二分发",
       "fee": {
         "maker": "0.01%",
         "taker": "0.025%",
