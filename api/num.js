@@ -9,4 +9,8 @@ function rawNum(raw) {
 }
 const FULL_WINDOW_HOURS = 168;
 const FULL_WINDOW_DAYS = 7;
-module.exports = { rawNum, FULL_WINDOW_HOURS, FULL_WINDOW_DAYS };
+// Established TxFlow and Entropy coins may omit at most 8 of 168 in-window hours
+// (about 4.8%). Fewer than this fails that coin, and one failed coin fails the
+// exchange 7D total. PopDEX does not use this threshold.
+const MIN_WINDOW_HOURS = 160;
+module.exports = { rawNum, FULL_WINDOW_HOURS, FULL_WINDOW_DAYS, MIN_WINDOW_HOURS };

@@ -141,7 +141,7 @@ async function info(body, signal, opt) {
   }
   throw new Error(last);
 }
-const { rawNum, FULL_WINDOW_HOURS } = require("./num");
+const { rawNum, FULL_WINDOW_HOURS, MIN_WINDOW_HOURS } = require("./num");
 function notional(candles, start7, now) {
   // An empty candle set is missing data. Do not sum it into a $0 total.
   if (!Array.isArray(candles) || candles.length === 0) return null;
@@ -150,7 +150,7 @@ function notional(candles, start7, now) {
   // The candle that contains now-24h is only partly inside the window. Weight it by that fraction.
   const earliest = start - (start % hour);
   const weight = (earliest + hour - start) / hour;
-  let d7 = 0, d24 = 0, n = 0;
+  let d7 = 0, d24 = 0, n = 0, first = null, last = null;
   const seen = new Set();
   for (const c of candles) {
     if (!c || typeof c !== "object") return null;
@@ -161,13 +161,19 @@ function notional(candles, start7, now) {
     if (seen.has(t)) continue;
     seen.add(t);
     n++;
+    if (first == null || t < first) first = t;
+    if (last == null || t > last) last = t;
     const notion = v * (o + h + l + cl) / 4;
     d7 += notion;
     if (t === earliest) d24 += notion * weight;
     else if (t >= start && t <= now) d24 += notion;
   }
-  if (n < FULL_WINDOW_HOURS) return null;
-  return { d7, d24 };
+  if (n === 0 || first == null) return null;
+  // A contiguous series that starts inside the window is a listing younger than 7 days.
+  const span = Math.round((last - first) / hour) + 1;
+  const young = first > start7 + hour && span === n;
+  if (!young && n < MIN_WINDOW_HOURS) return null;
+  return { d7, d24, hours: n, approx: young || n < FULL_WINDOW_HOURS };
 }
 async function runLimited(jobs, signal) {
   const out = new Array(jobs.length);
@@ -206,13 +212,14 @@ async function settle(coins, jobs, signal, timing) {
   if (missing.length || signal.aborted && missing.length) {
     return { value: null, day: null, error: missing.length + "/" + coins.length + " " + (lastError || "incomplete") };
   }
-  let value = 0, day = 0, hasDay = false;
+  let value = 0, day = 0, hasDay = false, approx = false;
   for (const c of coins) {
     const r = have.get(c);
     value += r.value;
+    if (r.approx) approx = true;
     if (r.day != null) { day += r.day; hasDay = true; }
   }
-  return { value, day: hasDay ? day : null, error: "" };
+  return { value, day: hasDay ? day : null, approx, error: "" };
 }
 function parseDay(raw) {
   if (raw == null || (typeof raw === "string" && raw.trim() === "")) return null;
@@ -280,7 +287,7 @@ async function load(signal, mark, timing, mode) {
       const v = notional(candles, start7, now);
       if (v == null) throw new Error("bad candles");
       mark("candles", coins.length, "candle");
-      return { coin, value: v.d7, day: v.d24 };
+      return { coin, value: v.d7, day: v.d24, hours: v.hours, approx: v.approx === true };
     });
     const cd = await settle(coins, candleJobs, signal, timing);
     timing.end();
@@ -288,7 +295,7 @@ async function load(signal, mark, timing, mode) {
     const raw = cd.value == null ? (cd.error || "7d failed") : null;
     return {
       coins: coins.length,
-      volume24h: null, volume7d: cd.value, candle24h: cd.day, coverage24h: null,
+      volume24h: null, volume7d: cd.value, volume7dApprox: cd.approx === true, candle24h: cd.day, coverage24h: null,
       phase: phaseName,
       error: raw == null ? null : phaseName + ": " + raw
     };
@@ -385,7 +392,7 @@ function serve(mode) {
     finish({
       slug: "txflow-perps", fetchedAt: new Date().toISOString(), tookMs: Date.now() - t0,
       coins: body.coins, phase: ok ? "done" : (body.phase || phase), volume24h: body.volume24h, volume7d: body.volume7d,
-      candle24h: body.candle24h, coverage24h: body.coverage24h, volume7dApprox: body.volume7d != null,
+      candle24h: body.candle24h, coverage24h: body.coverage24h, volume7dApprox: body.volume7dApprox === true,
       error: ok ? null : (body.error || "missing")
     }, ok);
   } catch (e) { fail(String(e && e.message || e)); }
@@ -394,4 +401,5 @@ function serve(mode) {
 const handler = serve("24h");
 handler.handler7 = serve("7d");
 handler.notional = notional;
+handler.MIN_WINDOW_HOURS = MIN_WINDOW_HOURS;
 module.exports = handler;

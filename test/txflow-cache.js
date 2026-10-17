@@ -121,7 +121,7 @@ async function run(fn, route) {
   assert.equal(week.payload.volume24h, null);
   assert.ok(week.payload.volume7d > 0);
   assert.notEqual(week.payload.volume7d, 0);
-  assert.equal(week.payload.volume7dApprox, true);
+  assert.equal(week.payload.volume7dApprox, false);
   assert.ok(week.payload.candle24h > 0);
   assert.equal(week.payload.error, null);
   assert.equal(week.res.headers["Cache-Control"], WEEK);
