@@ -469,10 +469,11 @@ const NO_SOURCE = {
   popdex: ["oiChange7d"],
   "entropy.io": ["oiChange7d"],
   risex: ["fees24h", "fees7d"],
-  qfex: ["fees24h", "fees7d"],
-  // Ondo config sets depositsDisplay "missing" (no deposit feed). Variational fees stay off this map:
-  // feesDisplay "na" is zero fees, rendered 不适用. Variational, QFEX, and TxFlow still request
-  // DefiLlama /tvl/{slug}, so a null OI/存款 stays 缺失.
+  // Variational fees stay off this map: feesDisplay "na" is zero fees, rendered 不适用.
+  // depositsDisplay "missing" means DefiLlama has no TVL series. Do not request /tvl/{slug}.
+  variational: ["oiToDeposits"],
+  qfex: ["fees24h", "fees7d", "oiToDeposits"],
+  "txflow-perps": ["oiToDeposits"],
   "ondo-perps": ["fees24h", "fees7d", "oiToDeposits"]
 };
 function feesUnsourced(slug) {
@@ -558,7 +559,7 @@ async function oneBody(ex, signal, row) {
   ];
   if (lighter) tasks.push(J(`${L}/protocol/lighter`, 2, "protocol/lighter", signal).then(proto => { ctx.proto = proto; settleDeposits(row, ex, ctx); }));
   else if (ex.slug === "popdex") tasks.push(J(`${L}/protocol/popdex-bridge`, 2, "protocol/popdex-bridge", signal).then(proto => { ctx.llama = proto; settleDeposits(row, ex, ctx); }));
-  else tasks.push(J(`${L}/tvl/${s}`, 2, undefined, signal).then(tv => { ctx.tvl = N(tv); settleDeposits(row, ex, ctx); }));
+  else if (ex.depositsDisplay !== "missing") tasks.push(J(`${L}/tvl/${s}`, 2, undefined, signal).then(tv => { ctx.tvl = N(tv); settleDeposits(row, ex, ctx); }));
   if (ex.slug === "popdex" && popShared) tasks.push(Promise.all([popShared.vault, popShared.tickers]).then(([vault, tickers]) => { ctx.pop = { vault, tickers }; settleDeposits(row, ex, ctx); }));
   else if (ex.slug === "popdex") ctx.pop = { vault: { error: "not started" }, tickers: { error: "not started" } };
   if (ex.hl_dex) tasks.push(entropyBook(ex.hl_dex, signal).then(hl => { ctx.hl = hl; settleDeposits(row, ex, ctx); }));
