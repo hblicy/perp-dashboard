@@ -489,12 +489,13 @@ const NO_SOURCE = {
   "txflow-perps": ["oiToDeposits"],
   "ondo-perps": ["fees24h", "fees7d", "oiToDeposits"]
 };
-// Hover text for each 「—」 cell. 「官方存款接口需要登录」 is Ondo only.
+// Hover text for each 「—」 cell. 「需要登录」 is Ondo only.
+// Variational publishes a public tvl, but it includes the OLP vault, so it is not the deposit denominator.
 const DEPOSIT_UNSOURCED = {
-  variational: "DefiLlama 没有该协议 TVL，公开接口只有行情",
-  qfex: "DefiLlama 没有该协议 TVL，存款接口需要密钥",
+  variational: "DefiLlama 没有该协议 TVL；官方公开接口的 TVL 含 OLP 金库，拆不出交易者存款",
+  qfex: "DefiLlama 没有该协议 TVL；只有本账户存款，没有全平台总额",
   "txflow-perps": "桥合约全部 USDC，拆不出交易者存款",
-  "ondo-perps": "DefiLlama 没有该协议 TVL，官方存款接口需要登录"
+  "ondo-perps": "DefiLlama 没有该协议 TVL；需要登录，只有账户自己的存款记录，没有全平台总额"
 };
 const FEE_UNSOURCED = "DefiLlama 没有该所手续费";
 const NO_SOURCE_REASON = {

@@ -61,7 +61,12 @@ assertDash(feeCell(["fees24h"], { slug: "ondo-perps", fees24h: null, feesDisplay
 assert.equal(feeCell(["fees24h"], { slug: "hyperliquid", fees24h: null, feesDisplay: null, noSource: [] }), "缺失");
 assert.equal(feeCell(["fees24h"], { feesDisplay: "na", fees24h: null }), "不适用");
 assertDash(cell(["oiToDeposits", "OI/存款", "x"], { slug: "ondo-perps", oiToDeposits: null, depositsDisplay: "missing", noSource: ["fees24h", "fees7d", "oiToDeposits"], noSourceReasons: data.NO_SOURCE_REASON["ondo-perps"] }), data.DEPOSIT_UNSOURCED["ondo-perps"]);
-assert.equal(data.DEPOSIT_UNSOURCED["ondo-perps"].includes("官方存款接口需要登录"), true);
+assert.equal(data.DEPOSIT_UNSOURCED.variational.includes("OLP 金库"), true);
+assert.equal(data.DEPOSIT_UNSOURCED.variational.includes("只有行情"), false);
+assert.equal(data.DEPOSIT_UNSOURCED.qfex.includes("只有本账户存款，没有全平台总额"), true);
+assert.equal(data.DEPOSIT_UNSOURCED.qfex.includes("需要登录"), false);
+assert.equal(data.DEPOSIT_UNSOURCED["ondo-perps"].includes("需要登录"), true);
+assert.equal(data.DEPOSIT_UNSOURCED["ondo-perps"].includes("只有账户自己的存款记录，没有全平台总额"), true);
 for (const slug of ["variational", "qfex", "txflow-perps"]) {
   const cols = data.NO_SOURCE[slug];
   const reasons = data.NO_SOURCE_REASON[slug];
@@ -168,7 +173,8 @@ pending.then(res => {
   }
   const ondoRow = payload.rows.find(r => r.slug === "ondo-perps");
   assert.equal(ondoRow.depositsReason, data.DEPOSIT_UNSOURCED["ondo-perps"]);
-  assert.equal(ondoRow.depositsReason.includes("官方存款接口需要登录"), true);
+  assert.equal(ondoRow.depositsReason.includes("需要登录"), true);
+  assert.equal(ondoRow.depositsReason.includes("没有全平台总额"), true);
   for (const row of payload.rows) {
     if (row.slug === "ondo-perps") continue;
     assert.equal(String(row.depositsReason || "").includes("需要登录"), false, row.slug);
