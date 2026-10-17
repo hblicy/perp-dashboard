@@ -115,8 +115,13 @@ vm.runInContext(src.replace("if(SNAP)show(SNAP);else{load();setInterval(load,600
 const cell = (c, r) => vm.runInContext("cell(" + JSON.stringify(c) + "," + JSON.stringify(r) + ")", sandbox);
 function cellText(html) { return String(html).replace(/<[^>]*>/g, ""); }
 const closedCell = cell(["oi", "持仓量 OI", "$"], { slug: "bulk", oi: 100, oiSource: "defillama", oiBasisAt: "2026-10-15T00:00:00.000Z" });
-assert.equal(closedCell.includes("10-15 08:00"), true);
-assert.equal(closedCell.includes("不是同一快照"), true);
+const closedTitle = (closedCell.match(/title="([^"]*)"/) || [])[1] || "";
+const closedText = closedCell.replace(/\s+title="[^"]*"/g, "").replace(/<[^>]+>/g, "");
+assert.equal(closedTitle.includes("2026-10-15 08:00"), true);
+assert.equal(closedTitle.includes("不是同一快照"), true);
+assert.equal(closedText.includes("2026-10-15"), false);
+assert.equal(closedText.includes("08:00"), false);
+assert.equal(closedText.includes("$100"), true);
 assert.equal(closedCell.includes("实时"), false);
 assert.equal(cellText(closedCell).includes("10-15"), false);
 assert.equal(cellText(closedCell).includes("08:00"), false);
