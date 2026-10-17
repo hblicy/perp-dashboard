@@ -3,6 +3,7 @@ const { setMaxListeners } = require("events");
 const CFG = require("../config.json");
 const { rawNum, FULL_WINDOW_HOURS, MIN_WINDOW_HOURS, LISTING_LOOKBACK_MS } = require("./num");
 const L = "https://api.llama.fi", G = "https://api.coingecko.com/api/v3";
+const VARIATIONAL_STATS = "https://api.variational.io/metadata/v2/stats";
 const N = x => (typeof x === "number" && isFinite(x) ? x : null);
 function utcDay(ts) {
   let t = +ts;
@@ -45,6 +46,20 @@ function lighterDeposit(proto) {
   const v = N(chains.Ethereum);
   if (!(v > 0)) return { value: null, reason: "protocol/lighter 的 Ethereum TVL 无效" };
   return { value: v, reason: null };
+}
+// A usable TVL is a positive finite amount. Zero, blank, and non-numeric stay missing.
+function positiveAmount(x) {
+  if (typeof x === "number") return Number.isFinite(x) && x > 0 ? x : null;
+  if (typeof x !== "string") return null;
+  const s = x.trim();
+  if (!/^[0-9]+(?:\.[0-9]+)?$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+// Official stats.tvl is settlement pools plus the OLP vault, often a decimal string.
+function variationalTvl(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  return positiveAmount(body.tvl);
 }
 function median(vals) {
   const xs = vals.filter(x => x != null && isFinite(x)).sort((a, b) => a - b);
@@ -482,19 +497,14 @@ const NO_SOURCE = {
   "entropy.io": ["oiChange7d"],
   risex: ["fees24h", "fees7d"],
   // Variational fees stay off this map: feesDisplay "na" is zero fees, rendered 不适用.
-  // depositsDisplay "missing" means DefiLlama has no TVL series. Do not request /tvl/{slug}.
-  // TxFlow's /tvl/txflow is the bridge contract's whole USDC balance, not trader deposits.
-  variational: ["oiToDeposits"],
+  // depositsDisplay "missing" means there is no deposit denominator. Do not request one.
+  // Variational and TxFlow are not on this map: their OI/存款 denominator is TVL近似.
   qfex: ["fees24h", "fees7d", "oiToDeposits"],
-  "txflow-perps": ["oiToDeposits"],
   "ondo-perps": ["fees24h", "fees7d", "oiToDeposits"]
 };
 // Hover text for each 「—」 cell. 「需要登录」 is Ondo only.
-// Variational publishes a public tvl, but it includes the OLP vault, so it is not the deposit denominator.
 const DEPOSIT_UNSOURCED = {
-  variational: "DefiLlama 没有该协议 TVL；官方公开接口的 TVL 含 OLP 金库，拆不出交易者存款",
   qfex: "DefiLlama 没有该协议 TVL；只有本账户存款，没有全平台总额",
-  "txflow-perps": "桥合约全部 USDC，拆不出交易者存款",
   "ondo-perps": "DefiLlama 没有该协议 TVL；需要登录，只有账户自己的存款记录，没有全平台总额"
 };
 const FEE_UNSOURCED = "DefiLlama 没有该所手续费";
@@ -503,8 +513,6 @@ const NO_SOURCE_REASON = {
   "entropy.io": { oiChange7d: "Hyperliquid 只有实时 OI，没有 7 日历史" },
   risex: { fees24h: FEE_UNSOURCED, fees7d: FEE_UNSOURCED },
   qfex: { fees24h: FEE_UNSOURCED, fees7d: FEE_UNSOURCED, oiToDeposits: DEPOSIT_UNSOURCED.qfex },
-  variational: { oiToDeposits: DEPOSIT_UNSOURCED.variational },
-  "txflow-perps": { oiToDeposits: DEPOSIT_UNSOURCED["txflow-perps"] },
   "ondo-perps": { fees24h: FEE_UNSOURCED, fees7d: FEE_UNSOURCED, oiToDeposits: DEPOSIT_UNSOURCED["ondo-perps"] }
 };
 function feesUnsourced(slug) {
@@ -562,6 +570,15 @@ function settleDeposits(row, ex, ctx) {
     depositsAt = observedAt;
     if (eth.value != null) { userDeposits = eth.value; tvl = eth.value; depositsSource = "tvl"; }
     else depositsReason = eth.reason;
+  } else if (ex.slug === "variational" || ex.slug === "txflow-perps") {
+    // TVL近似: official stats (settlement pools + OLP vault) or bridge USDC. Not trader deposits.
+    const amount = positiveAmount(ctx.tvl);
+    if (amount != null) {
+      userDeposits = amount; tvl = amount; depositsAt = observedAt; depositsSource = "tvl-approx";
+    } else {
+      tvl = null;
+      depositsReason = ex.slug === "variational" ? "Variational 官方 TVL 取不到" : "DefiLlama tvl/txflow 取不到";
+    }
   } else if (ex.depositsDisplay === "missing") {
     depositsReason = DEPOSIT_UNSOURCED[ex.slug] || "没有可用的存款或 TVL";
   } else if (ctx.tvl != null) {
@@ -590,6 +607,8 @@ async function oneBody(ex, signal, row) {
   ];
   if (lighter) tasks.push(J(`${L}/protocol/lighter`, 2, "protocol/lighter", signal).then(proto => { ctx.proto = proto; settleDeposits(row, ex, ctx); }));
   else if (ex.slug === "popdex") tasks.push(J(`${L}/protocol/popdex-bridge`, 2, "protocol/popdex-bridge", signal).then(proto => { ctx.llama = proto; settleDeposits(row, ex, ctx); }));
+  else if (ex.slug === "variational") tasks.push(J(VARIATIONAL_STATS, 2, "variational/stats", signal).then(body => { ctx.tvl = variationalTvl(body); settleDeposits(row, ex, ctx); }));
+  else if (ex.slug === "txflow-perps") tasks.push(J(`${L}/tvl/txflow`, 2, "tvl/txflow", signal).then(tv => { ctx.tvl = positiveAmount(tv); settleDeposits(row, ex, ctx); }));
   else if (ex.depositsDisplay !== "missing") tasks.push(J(`${L}/tvl/${s}`, 2, undefined, signal).then(tv => { ctx.tvl = N(tv); settleDeposits(row, ex, ctx); }));
   if (ex.slug === "popdex" && popShared) tasks.push(Promise.all([popShared.vault, popShared.tickers]).then(([vault, tickers]) => { ctx.pop = { vault, tickers }; settleDeposits(row, ex, ctx); }));
   else if (ex.slug === "popdex") ctx.pop = { vault: { error: "not started" }, tickers: { error: "not started" } };
@@ -892,6 +911,9 @@ handler.applyOi = applyOi;
 handler.touchRatio = touchRatio;
 handler.applyHeat = applyHeat;
 handler.lighterDeposit = lighterDeposit;
+handler.positiveAmount = positiveAmount;
+handler.variationalTvl = variationalTvl;
+handler.VARIATIONAL_STATS = VARIATIONAL_STATS;
 handler.popdexDeposits = popdexDeposits;
 handler.popdexProtocolTvl = popdexProtocolTvl;
 handler.popdexOi = popdexOi;

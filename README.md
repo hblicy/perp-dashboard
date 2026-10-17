@@ -18,6 +18,13 @@
 - 格子标「TVL−金库」。悬停写明：包含闲置余额和未列出的协议账户，不含保险基金；与标 TVL 的行口径不同。
 - 金库或 tickers 超时、5xx、429 时，整次响应只缓存 60 秒，不带 stale-while-revalidate。404 和 400 不触发这档短缓存。正常仍是 s-maxage=600 加 stale-while-revalidate，并受原来的 44 秒截止限制。金库失败只让 PopDEX 这一行的存款缺失，其他行照常。金库请求仍是 PopDEX 的 8 秒超时，失败写入 errors（`/popdex/vaults`）。
 
+## 存款分母（Variational、TxFlow、Hyperliquid）
+
+- Variational：`GET https://api.variational.io/metadata/v2/stats`（无 key）的 `tvl`。官方说明这是结算池和 OLP 金库里的总锁仓，字段常是十进制字符串。OI/存款格子显示比值，并标「TVL近似」。悬停写明这是官方 TVL，含结算池和 OLP 金库，不是仅交易者存款。
+- TxFlow：`GET https://api.llama.fi/tvl/txflow`（纯数字）。这是官方桥合约里的 USDC，含金库。格子同样标「TVL近似」。悬停写明 DefiLlama tvl/txflow、桥合约 USDC、含金库，不是仅交易者存款。OI 和手续费仍用 DefiLlama slug `txflow-perps`。
+- Hyperliquid：存款分母仍是 DefiLlama `/tvl/hyperliquid`，格子仍标 TVL。
+- 这两个 TVL 取不到、不是正数，或字段缺失时，该格显示「缺失」，不显示 0，也不显示「—」。QFEX 与 Ondo 仍是「—」。
+
 ## 交易量口径
 
 - 多数交易所：perpsmania，没有则用 CoinGecko。

@@ -119,7 +119,6 @@
       "name": "Variational",
       "slug": "variational",
       "feesDisplay": "na",
-      "depositsDisplay": "missing",
       "coingecko": "variational-omni",
       "perpsmania": "variational",
       "note": "阶段未公布，周15万分，周五分发",
@@ -150,7 +149,6 @@
     {
       "name": "TxFlow",
       "slug": "txflow-perps",
-      "depositsDisplay": "missing",
       "note": "S1阶段，周125万分，周二分发",
       "fee": {
         "maker": "0.015%",
