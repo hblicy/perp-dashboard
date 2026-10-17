@@ -1,7 +1,7 @@
 // Vercel 无服务器函数：汇总 DefiLlama + CoinGecko。正常响应 s-maxage=600 + stale-while-revalidate=3600，最长约 70 分钟。
 const { setMaxListeners } = require("events");
 const CFG = require("../config.json");
-const { rawNum, FULL_WINDOW_HOURS } = require("./num");
+const { rawNum, FULL_WINDOW_HOURS, MIN_WINDOW_HOURS, LISTING_LOOKBACK_MS } = require("./num");
 const L = "https://api.llama.fi", G = "https://api.coingecko.com/api/v3";
 const N = x => (typeof x === "number" && isFinite(x) ? x : null);
 function utcDay(ts) {
@@ -427,10 +427,16 @@ function pointOnDay(chart, day) {
   }
   return best;
 }
-// Last closed UTC day is yesterday. A missing or null sample stays missing: no total24h, no older day.
+// Preferred point is yesterday, the last closed UTC day. A null sample on that day stays missing.
+// If that day is absent, use the previous closed day once. Anything older stays missing. Never total24h.
 function closedUtcPoint(chart, nowMs) {
   const today = feeWindow(nowMs).today;
-  return pointOnDay(chart, today - 86400);
+  const yesterday = today - 86400;
+  const primary = pointOnDay(chart, yesterday);
+  if (primary) return primary.v == null ? null : Object.assign({ fallback: false }, primary);
+  const prev = pointOnDay(chart, yesterday - 86400);
+  if (!prev || prev.v == null) return null;
+  return Object.assign({ fallback: true }, prev);
 }
 function applyOi(row, oi, nowMs) {
   if (!row) return;
@@ -440,7 +446,7 @@ function applyOi(row, oi, nowMs) {
   const now = nowMs == null ? Date.now() : nowMs;
   const pt = closedUtcPoint(oi.totalDataChart, now);
   if (!pt || pt.v == null) {
-    row.oi = null; row.oiBasis = null; row.oiBasisAt = null; row.oiSource = null; row.oiChange7d = null;
+    row.oi = null; row.oiBasis = null; row.oiBasisAt = null; row.oiSource = null; row.oiChange7d = null; row.oiDayFallback = false;
     touchRatio(row);
     return;
   }
@@ -448,6 +454,7 @@ function applyOi(row, oi, nowMs) {
   row.oiBasis = pt.v;
   row.oiBasisAt = new Date(pt.t * 1000).toISOString();
   row.oiSource = "defillama";
+  row.oiDayFallback = pt.fallback === true;
   if (row.slug === "entropy.io") row.oiChange7d = null;
   else {
     const prev = pointOnDay(oi.totalDataChart, pt.day - 7 * 86400);
@@ -456,12 +463,29 @@ function applyOi(row, oi, nowMs) {
   }
   touchRatio(row);
 }
+// Structural gaps. 「—」 is this map; a null without an entry is temporary 「缺失」.
+// Fees are not estimated from volume × the maker/taker rate.
+const NO_SOURCE = {
+  popdex: ["oiChange7d"],
+  "entropy.io": ["oiChange7d"],
+  risex: ["fees24h", "fees7d"],
+  // Variational fees stay off this map: feesDisplay "na" is zero fees, rendered 不适用.
+  // depositsDisplay "missing" means DefiLlama has no TVL series. Do not request /tvl/{slug}.
+  variational: ["oiToDeposits"],
+  qfex: ["fees24h", "fees7d", "oiToDeposits"],
+  "txflow-perps": ["oiToDeposits"],
+  "ondo-perps": ["fees24h", "fees7d", "oiToDeposits"]
+};
+function feesUnsourced(slug) {
+  const cols = NO_SOURCE[slug] || [];
+  return cols.indexOf("fees24h") >= 0 && cols.indexOf("fees7d") >= 0;
+}
 function applyFees(row, ex, fe) {
   const sliced = feeSlice((fe || {}).totalDataChart, Date.now());
   row.feesAsOf = sliced.feesAsOf;
   row.fees7dFrom = sliced.fees7dFrom;
   row.fees7dTo = sliced.fees7dTo;
-  if (ex.feesDisplay) {
+  if (ex.feesDisplay || feesUnsourced(ex.slug)) {
     row.fees24h = null; row.fees7d = null; row.feeRatio = null; row.feesDayFallback = false;
     return;
   }
@@ -535,7 +559,7 @@ async function oneBody(ex, signal, row) {
   ];
   if (lighter) tasks.push(J(`${L}/protocol/lighter`, 2, "protocol/lighter", signal).then(proto => { ctx.proto = proto; settleDeposits(row, ex, ctx); }));
   else if (ex.slug === "popdex") tasks.push(J(`${L}/protocol/popdex-bridge`, 2, "protocol/popdex-bridge", signal).then(proto => { ctx.llama = proto; settleDeposits(row, ex, ctx); }));
-  else tasks.push(J(`${L}/tvl/${s}`, 2, undefined, signal).then(tv => { ctx.tvl = N(tv); settleDeposits(row, ex, ctx); }));
+  else if (ex.depositsDisplay !== "missing") tasks.push(J(`${L}/tvl/${s}`, 2, undefined, signal).then(tv => { ctx.tvl = N(tv); settleDeposits(row, ex, ctx); }));
   if (ex.slug === "popdex" && popShared) tasks.push(Promise.all([popShared.vault, popShared.tickers]).then(([vault, tickers]) => { ctx.pop = { vault, tickers }; settleDeposits(row, ex, ctx); }));
   else if (ex.slug === "popdex") ctx.pop = { vault: { error: "not started" }, tickers: { error: "not started" } };
   if (ex.hl_dex) tasks.push(entropyBook(ex.hl_dex, signal).then(hl => { ctx.hl = hl; settleDeposits(row, ex, ctx); }));
@@ -555,22 +579,71 @@ async function pmVols(rows, signal) {
     if (v7 != null) r.volume7d = v7;
   }
 }
+// Same cap the page states for /api/data (10 min fresh + 60 min stale-while-revalidate).
+// A CoinGecko observation older than this is not served, including after HTTP 429.
+const COINGECKO_MAX_AGE_MS = 70 * 60 * 1000;
+const cgMem = new Map();
+function resetCgCache() { cgMem.clear(); }
+function cgRemember(url, body, at) {
+  cgMem.set(String(url), { at: at == null ? Date.now() : at, body });
+}
+function cgRecall(url, now) {
+  const hit = cgMem.get(String(url));
+  if (!hit || hit.body == null) return null;
+  const t = now == null ? Date.now() : now;
+  if (t - hit.at > COINGECKO_MAX_AGE_MS) return null;
+  return hit;
+}
+async function cgCached(url, tries, signal) {
+  const body = await J(url, tries, undefined, signal);
+  if (body != null) {
+    const at = Date.now();
+    cgRemember(url, body, at);
+    return { body, at, fromCache: false };
+  }
+  const limited = ERR.some(e => e && e.error === "HTTP 429" && String(url).includes(String(e.url)));
+  if (!limited) return { body: null, at: null, fromCache: false };
+  const hit = cgRecall(url, Date.now());
+  if (!hit) return { body: null, at: null, fromCache: false };
+  return { body: hit.body, at: hit.at, fromCache: true };
+}
+function noteCgCache(row, parts) {
+  let at = null;
+  for (const p of parts) {
+    if (!p || !p.fromCache || typeof p.at !== "number") continue;
+    if (at == null || p.at < at) at = p.at;
+  }
+  if (at != null) row.volumeCachedAt = new Date(at).toISOString();
+}
 async function vols(rows, signal) {
-  const [lst, p] = await Promise.all([J(`${G}/derivatives/exchanges?per_page=300`, 2, undefined, signal), J(`${G}/simple/price?ids=bitcoin&vs_currencies=usd`, 2, undefined, signal)]);
-  const btc = N(p && p.bitcoin && p.bitcoin.usd); if (!btc || !lst) return;
+  const listUrl = `${G}/derivatives/exchanges?per_page=300`;
+  const priceUrl = `${G}/simple/price?ids=bitcoin&vs_currencies=usd`;
+  const [lstR, pR] = await Promise.all([cgCached(listUrl, 2, signal), cgCached(priceUrl, 2, signal)]);
+  const lst = lstR.body, p = pR.body;
+  const btc = N(p && p.bitcoin && p.bitcoin.usd); if (!btc || !Array.isArray(lst)) return;
   const by = Object.fromEntries(lst.map(e => [e.id, e]));
   const R = s => rows.find(r => r.slug === s);
   const todo = CFG.exchanges.filter(ex => ex.coingecko && by[ex.coingecko] && (R(ex.slug).volume24h == null || R(ex.slug).volume7d == null));
-  for (const ex of todo) { const r = R(ex.slug); if (r.volume24h != null) continue; const v = rawNum(by[ex.coingecko].trade_volume_24h_btc); if (v != null) { r.volume24h = v * btc; r.volSource = "coingecko"; r.volume24hApprox = true; } }
+  for (const ex of todo) {
+    const r = R(ex.slug);
+    if (r.volume24h != null) continue;
+    const v = rawNum(by[ex.coingecko].trade_volume_24h_btc);
+    if (v != null) { r.volume24h = v * btc; r.volSource = "coingecko"; r.volume24hApprox = true; noteCgCache(r, [lstR, pR]); }
+  }
   for (let i = 0; i < todo.length; i += 2) { // 每批 2 个并发，避免 CoinGecko 限流
     await Promise.all(todo.slice(i, i + 2).map(async ex => {
       if (R(ex.slug).volume7d != null) return;
       inflight.add(ex.slug);
-      let c;
-      try { c = await J(`${G}/exchanges/${ex.coingecko}/volume_chart?days=7`, 3, undefined, signal); }
+      const chartUrl = `${G}/exchanges/${ex.coingecko}/volume_chart?days=7`;
+      let chartR;
+      try { chartR = await cgCached(chartUrl, 3, signal); }
       finally { inflight.delete(ex.slug); }
-      const sum = cgWindowSum(c);
-      if (sum != null) { const row = rows.find(r => r.slug === ex.slug); row.volume7d = sum * btc; row.volume7dApprox = true; row.volume7dMethod = "coingecko"; }
+      const sum = cgWindowSum(chartR && chartR.body);
+      if (sum != null) {
+        const row = rows.find(r => r.slug === ex.slug);
+        row.volume7d = sum * btc; row.volume7dApprox = true; row.volume7dMethod = "coingecko";
+        noteCgCache(row, [lstR, pR, chartR]);
+      }
     }));
   }
 }
@@ -715,7 +788,7 @@ async function popdexVols(signal, tickersP) {
 }
 function blankRows() {
   const win = feeSlice([], Date.now());
-  return CFG.exchanges.map(ex => ({ name: ex.name, slug: ex.slug, url: typeof ex.url === "string" && ex.url.startsWith("https://") ? ex.url : null, coingecko: ex.coingecko || null, oi: null, oiChange7d: null, oiBasis: null, oiBasisAt: null, oiSource: null, volume24h: null, volume7d: null, volSource: null, fees24h: null, fees7d: null, feesAsOf: win.feesAsOf, fees7dFrom: win.fees7dFrom, fees7dTo: win.fees7dTo, feesDayFallback: false, feesDisplay: ex.feesDisplay || null, feeRatio: null, tvl: null, userDeposits: null, depositsAt: null, depositsSource: null, depositsReason: null, depositsDisplay: ex.depositsDisplay || null, oiToDeposits: null, token: Object.prototype.hasOwnProperty.call(ex, "token") ? ex.token : undefined, tokenNote: ex.tokenNote || null, verification: ex.verification || null, heatRatio: null, heatMedian: null, heatRelative: null, heatMetric: null, heatLabel: null }));
+  return CFG.exchanges.map(ex => ({ name: ex.name, slug: ex.slug, url: typeof ex.url === "string" && ex.url.startsWith("https://") ? ex.url : null, coingecko: ex.coingecko || null, oi: null, oiChange7d: null, oiBasis: null, oiBasisAt: null, oiSource: null, oiDayFallback: false, noSource: (NO_SOURCE[ex.slug] || []).slice(), volume24h: null, volume7d: null, volSource: null, fees24h: null, fees7d: null, feesAsOf: win.feesAsOf, fees7dFrom: win.fees7dFrom, fees7dTo: win.fees7dTo, feesDayFallback: false, feesDisplay: ex.feesDisplay || null, feeRatio: null, tvl: null, userDeposits: null, depositsAt: null, depositsSource: null, depositsReason: null, depositsDisplay: ex.depositsDisplay || null, oiToDeposits: null, token: Object.prototype.hasOwnProperty.call(ex, "token") ? ex.token : undefined, tokenNote: ex.tokenNote || null, verification: ex.verification || null, heatRatio: null, heatMedian: null, heatRelative: null, heatMetric: null, heatLabel: null }));
 }
 function applyPop(rows, pv) {
   const pr = rows && rows.find(r => r.slug === "popdex");
@@ -743,6 +816,8 @@ async function handler(req, res) {
     res.setHeader("Cache-Control", degraded
       ? "public, max-age=0, s-maxage=60"
       : "public, max-age=0, s-maxage=600, stale-while-revalidate=3600");
+    payload.minWindowHours = MIN_WINDOW_HOURS;
+    payload.listingLookbackMs = LISTING_LOOKBACK_MS;
     res.end(JSON.stringify(payload));
   };
   hard = setTimeout(() => {
@@ -801,4 +876,11 @@ handler.POPDEX_OI_MAX_AGE_MS = POPDEX_OI_MAX_AGE_MS;
 handler.J = J;
 handler.REQ_MS = REQ_MS;
 handler.DEADLINE_MS = DEADLINE_MS;
+handler.NO_SOURCE = NO_SOURCE;
+handler.MIN_WINDOW_HOURS = MIN_WINDOW_HOURS;
+handler.LISTING_LOOKBACK_MS = LISTING_LOOKBACK_MS;
+handler.COINGECKO_MAX_AGE_MS = COINGECKO_MAX_AGE_MS;
+handler.resetCgCache = resetCgCache;
+handler.cgRemember = cgRemember;
+handler.cgRecall = cgRecall;
 module.exports = handler;

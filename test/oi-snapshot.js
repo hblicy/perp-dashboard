@@ -56,10 +56,24 @@ assert.equal(s6.oiBasis, null);
 assert.equal(s6.oiChange7d, null);
 assert.notEqual(s6.oi, 777);
 
-const older = apply("bulk", [[yesterday - DAY, 50], [today, 90]], { total24h: 90 });
-assert.equal(older.oi, null);
-assert.equal(older.oiBasis, null);
-assert.equal(older.oiChange7d, null);
+const oneDay = apply("bulk", [[yesterday - DAY, 50], [yesterday - DAY - 7 * DAY, 25], [today, 90]], { total24h: 90 });
+assert.equal(oneDay.oi, 50);
+assert.equal(oneDay.oiBasis, 50);
+assert.equal(oneDay.oiSource, "defillama");
+assert.equal(oneDay.oiDayFallback, true);
+assert.equal(oneDay.oiBasisAt, new Date((yesterday - DAY) * 1000).toISOString());
+assert.equal(oneDay.oiChange7d, 1);
+assert.equal(oneDay.oiToDeposits, 50 / 1e6);
+assert.notEqual(oneDay.oi, 90);
+assert.notEqual(oneDay.oiBasisAt, new Date(yesterday * 1000).toISOString());
+
+const twoDay = apply("bulk", [[yesterday - 2 * DAY, 50], [yesterday - 2 * DAY - 7 * DAY, 25], [today, 90]], { total24h: 90 });
+assert.equal(twoDay.oi, null);
+assert.equal(twoDay.oiBasis, null);
+assert.equal(twoDay.oiChange7d, null);
+assert.equal(twoDay.oiToDeposits, null);
+assert.notEqual(twoDay.oi, 50);
+assert.notEqual(twoDay.oi, 90);
 
 const nullWeek = apply("bulk", [[yesterday, 200], [week, null]], { total24h: 200 });
 assert.equal(nullWeek.oi, 200);
@@ -99,6 +113,7 @@ const sandbox = { URL, console, JSON, Math, Date, Number, String, Array, Object,
 vm.createContext(sandbox);
 vm.runInContext(src.replace("if(SNAP)show(SNAP);else{load();setInterval(load,600000)}", ""), sandbox);
 const cell = (c, r) => vm.runInContext("cell(" + JSON.stringify(c) + "," + JSON.stringify(r) + ")", sandbox);
+function cellText(html) { return String(html).replace(/<[^>]*>/g, ""); }
 const closedCell = cell(["oi", "持仓量 OI", "$"], { slug: "bulk", oi: 100, oiSource: "defillama", oiBasisAt: "2026-10-15T00:00:00.000Z" });
 const closedTitle = (closedCell.match(/title="([^"]*)"/) || [])[1] || "";
 const closedText = closedCell.replace(/\s+title="[^"]*"/g, "").replace(/<[^>]+>/g, "");
@@ -108,6 +123,15 @@ assert.equal(closedText.includes("2026-10-15"), false);
 assert.equal(closedText.includes("08:00"), false);
 assert.equal(closedText.includes("$100"), true);
 assert.equal(closedCell.includes("实时"), false);
+assert.equal(cellText(closedCell).includes("10-15"), false);
+assert.equal(cellText(closedCell).includes("08:00"), false);
+assert.equal(cellText(closedCell).includes("$100"), true);
+const fbCell = cell(["oi", "持仓量 OI", "$"], { slug: "nado", oi: 50, oiSource: "defillama", oiDayFallback: true, oiBasisAt: "2026-10-14T00:00:00.000Z" });
+assert.equal(fbCell.includes("10-14 08:00"), true);
+assert.equal(fbCell.includes("回退一日"), true);
+assert.equal(cellText(fbCell).includes("10-14"), false);
+assert.equal(cellText(fbCell).includes("08:00"), false);
+assert.equal(cellText(fbCell).includes("$50"), true);
 const popCell = cell(["oi", "持仓量OI", "$"], { slug: "popdex", oi: 10, oiSource: "popdex" });
 assert.equal(popCell.includes("实时"), false);
 assert.equal(popCell.includes("$10"), true);
@@ -126,6 +150,9 @@ assert.equal(missCell.includes("缺失"), true);
 assert.equal(missCell.includes("-100"), false);
 assert.equal(cell(["oiChange7d", "OI 7日变化", "%"], { slug: "popdex", oiChange7d: null }), "缺失");
 assert.equal(cell(["oiChange7d", "OI 7日变化", "%"], { slug: "entropy.io", oiChange7d: null }), "缺失");
+assert.equal(cell(["oiChange7d", "OI 7日变化", "%"], { slug: "popdex", oiChange7d: null, noSource: ["oiChange7d"] }), "—");
+assert.equal(cell(["oiChange7d", "OI 7日变化", "%"], { slug: "entropy.io", oiChange7d: null, noSource: ["oiChange7d"] }), "—");
+assert.equal(cell(["oiChange7d", "OI 7日变化", "%"], { slug: "bulk", oiChange7d: null, noSource: [] }), "缺失");
 const order = vm.runInContext(`JSON.stringify({desc:sortedRows([{slug:"bulk",oiToDeposits:1},{slug:"popdex",oiToDeposits:9},{slug:"arcus",oiToDeposits:3}],"oiToDeposits",-1).map(r=>r.slug),asc:sortedRows([{slug:"bulk",oiToDeposits:1},{slug:"popdex",oiToDeposits:9},{slug:"arcus",oiToDeposits:3}],"oiToDeposits",1).map(r=>r.slug)})`, sandbox);
 assert.equal(order, JSON.stringify({ desc: ["arcus", "bulk", "popdex"], asc: ["bulk", "arcus", "popdex"] }));
 
@@ -193,6 +220,34 @@ pending.then(res => {
     assert.equal(ent.oiSource, "hyperliquid");
     assert.equal(ent.oi, 10);
     assert.equal(ent.oiChange7d, null);
+    assert.deepEqual(popRow.noSource, ["oiChange7d"]);
+    assert.deepEqual(ent.noSource, ["oiChange7d"]);
+    assert.deepEqual(bulk.noSource, []);
+    assert.equal(bulk.oiDayFallback, false);
+    const risex = payload.rows.find(r => r.slug === "risex");
+    assert.deepEqual(risex.noSource, ["fees24h", "fees7d"]);
+    assert.equal(risex.fees24h, null);
+    assert.equal(risex.fees7d, null);
+    const qfex = payload.rows.find(r => r.slug === "qfex");
+    assert.deepEqual(qfex.noSource, ["fees24h", "fees7d", "oiToDeposits"]);
+    assert.equal(qfex.fees24h, null);
+    assert.equal(qfex.fees7d, null);
+    const ondoRow = payload.rows.find(r => r.slug === "ondo-perps");
+    assert.deepEqual(ondoRow.noSource, ["fees24h", "fees7d", "oiToDeposits"]);
+    assert.equal(ondoRow.fees24h, null);
+    assert.equal(ondoRow.fees7d, null);
+    const variRow = payload.rows.find(r => r.slug === "variational");
+    assert.deepEqual(variRow.noSource, ["oiToDeposits"]);
+    assert.equal(variRow.feesDisplay, "na");
+    assert.equal(variRow.fees24h, null);
+    assert.equal(variRow.fees7d, null);
+    const txRow = payload.rows.find(r => r.slug === "txflow-perps");
+    assert.deepEqual(txRow.noSource, ["oiToDeposits"]);
+    for (const slug of ["variational", "qfex", "txflow-perps", "ondo-perps"]) {
+      const row = payload.rows.find(r => r.slug === slug);
+      assert.equal(row.depositsDisplay, "missing", slug);
+      assert.ok(row.noSource.indexOf("oiToDeposits") >= 0, slug);
+    }
     assert.equal(payload.rows.length, CFG.exchanges.length);
     console.log("oi-snapshot cases ok tookMs=" + payload.tookMs + " elapsed=" + (Date.now() - started));
   } catch (err) {

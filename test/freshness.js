@@ -182,7 +182,7 @@ age.takeTx7(nullCandle, { fetchedAt: weekEdge, volume7d: 1, candle24h: null }, n
 assert.equal(nullCandle.volume7d, 1);
 assert.equal(nullCandle.txCandle24h, undefined);
 const weekOk = { slug: "txflow-perps", volume7d: null };
-age.takeTx7(weekOk, { fetchedAt: weekEdge, volume7d: 999, candle24h: 10 }, now);
+age.takeTx7(weekOk, { fetchedAt: weekEdge, volume7d: 999, candle24h: 10, volume7dApprox: true }, now);
 assert.equal(weekOk.volume7d, 999);
 assert.equal(weekOk.volume7dApprox, true);
 assert.equal(weekOk.tx7, "ready");
