@@ -284,17 +284,17 @@ function popdexOi(tickers, nowMs) {
   return { value: s, reason: null };
 }
 // Hourly quote volume. A full window is FULL_WINDOW_HOURS contiguous candles.
+// Candles before start are left out of the sum and do not reject the symbol.
 // listedAt under 7 days: sum the hours on hand and mark approximate. Otherwise a short or gapped window is missing, never 0.
 function sumQuoteWindow(candles, start, now, listedAt) {
   if (!Array.isArray(candles)) return null;
   const hour = 3600000;
   const rows = [];
-  let older = false;
   for (const c of candles) {
     if (!Array.isArray(c)) return null;
     const t = rawNum(c[0]);
     if (t == null) return null;
-    if (t < start) { older = true; continue; }
+    if (t < start) continue;
     if (t > now) continue;
     const quote = rawNum(c[6]);
     if (quote == null || quote < 0) return null;
@@ -312,7 +312,7 @@ function sumQuoteWindow(candles, start, now, listedAt) {
   const sum = uniq.reduce((s, row) => s + row.quote, 0);
   const young = listedAt != null && listedAt <= now && now - listedAt < FULL_WINDOW_HOURS * hour;
   if (young) return { value: sum, approx: true, count: uniq.length };
-  if (older || uniq.length < FULL_WINDOW_HOURS || span !== uniq.length) return null;
+  if (uniq.length < FULL_WINDOW_HOURS || span !== uniq.length) return null;
   return { value: sum, approx: false, count: uniq.length };
 }
 let ERR = [];
