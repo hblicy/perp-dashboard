@@ -37,6 +37,8 @@ assert.equal(footer.includes("昨日手续费(UTC)"), false);
 assert.equal(footer.includes("按 UTC 自然日统计"), true);
 assert.equal(footer.includes("昨日手续费按 UTC 自然日统计，是昨日完整 UTC 日；若昨日还没进 DefiLlama，该行改用最近一个完整日，并在悬停提示里标出日期。"), true);
 assert.equal(footer.includes("在格子里标出日期"), false);
+assert.equal(footer.includes("Ondo Perps 的存款显示缺失"), false);
+assert.equal(footer.includes("也不退回 DefiLlama 的日 OI。手续费为基础档费率"), true);
 assert.equal(html.includes("24H 手续费"), false);
 assert.equal(html.includes("过期"), false);
 assert.equal(html.includes("以悬停时间为准"), false);

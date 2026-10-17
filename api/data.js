@@ -283,9 +283,13 @@ function popdexOi(tickers, nowMs) {
   if (!n) return { value: null, reason: "popdex tickers 为空" };
   return { value: s, reason: null };
 }
-// Hourly quote volume. A full window is FULL_WINDOW_HOURS contiguous candles.
-// Candles before start are left out of the sum and do not reject the symbol.
-// listedAt under 7 days: sum the hours on hand and mark approximate. Otherwise a short or gapped window is missing, never 0.
+// Hourly quote volume. A candle with open time t is still forming while t + hour > now,
+// and that hour is not summed. The 180-candle fetch keeps one hour before `start` so
+// the closed window can still hold 168 hours while the current hour is open.
+// Established: the 168 closed hours that end at the last closed candle, contiguous,
+// and that candle must be the hour immediately before the one that contains now.
+// listedAt under 7 days: sum the closed hours on hand and mark approximate.
+// A short or gapped established window is missing, never 0.
 function sumQuoteWindow(candles, start, now, listedAt) {
   if (!Array.isArray(candles)) return null;
   const hour = 3600000;
@@ -294,8 +298,8 @@ function sumQuoteWindow(candles, start, now, listedAt) {
     if (!Array.isArray(c)) return null;
     const t = rawNum(c[0]);
     if (t == null) return null;
-    if (t < start) continue;
-    if (t > now) continue;
+    if (t < start - hour) continue;
+    if (t + hour > now) continue;
     const quote = rawNum(c[6]);
     if (quote == null || quote < 0) return null;
     rows.push({ t, quote });
@@ -307,13 +311,21 @@ function sumQuoteWindow(candles, start, now, listedAt) {
     if (uniq.length && uniq[uniq.length - 1].t === row.t) continue;
     uniq.push(row);
   }
-  const first = uniq[0].t, last = uniq[uniq.length - 1].t;
-  const span = Math.round((last - first) / hour) + 1;
-  const sum = uniq.reduce((s, row) => s + row.quote, 0);
   const young = listedAt != null && listedAt <= now && now - listedAt < FULL_WINDOW_HOURS * hour;
-  if (young) return { value: sum, approx: true, count: uniq.length };
-  if (uniq.length < FULL_WINDOW_HOURS || span !== uniq.length) return null;
-  return { value: sum, approx: false, count: uniq.length };
+  if (young) {
+    const sum = uniq.reduce((s, row) => s + row.quote, 0);
+    return { value: sum, approx: true, count: uniq.length };
+  }
+  const last = uniq[uniq.length - 1].t;
+  if (!(last + hour <= now && now < last + 2 * hour)) return null;
+  const windowStart = last - (FULL_WINDOW_HOURS - 1) * hour;
+  const kept = [];
+  for (const row of uniq) if (row.t >= windowStart) kept.push(row);
+  if (kept.length !== FULL_WINDOW_HOURS) return null;
+  const span = Math.round((last - kept[0].t) / hour) + 1;
+  if (span !== kept.length) return null;
+  const sum = kept.reduce((s, row) => s + row.quote, 0);
+  return { value: sum, approx: false, count: kept.length };
 }
 let ERR = [];
 let inflightReq = new Set();
@@ -471,10 +483,28 @@ const NO_SOURCE = {
   risex: ["fees24h", "fees7d"],
   // Variational fees stay off this map: feesDisplay "na" is zero fees, rendered 不适用.
   // depositsDisplay "missing" means DefiLlama has no TVL series. Do not request /tvl/{slug}.
+  // TxFlow's /tvl/txflow is the bridge contract's whole USDC balance, not trader deposits.
   variational: ["oiToDeposits"],
   qfex: ["fees24h", "fees7d", "oiToDeposits"],
   "txflow-perps": ["oiToDeposits"],
   "ondo-perps": ["fees24h", "fees7d", "oiToDeposits"]
+};
+// Hover text for each 「—」 cell. 「官方存款接口需要登录」 is Ondo only.
+const DEPOSIT_UNSOURCED = {
+  variational: "DefiLlama 没有该协议 TVL，公开接口只有行情",
+  qfex: "DefiLlama 没有该协议 TVL，存款接口需要密钥",
+  "txflow-perps": "桥合约全部 USDC，拆不出交易者存款",
+  "ondo-perps": "DefiLlama 没有该协议 TVL，官方存款接口需要登录"
+};
+const FEE_UNSOURCED = "DefiLlama 没有该所手续费";
+const NO_SOURCE_REASON = {
+  popdex: { oiChange7d: "官方只有实时 OI，没有 7 日历史" },
+  "entropy.io": { oiChange7d: "Hyperliquid 只有实时 OI，没有 7 日历史" },
+  risex: { fees24h: FEE_UNSOURCED, fees7d: FEE_UNSOURCED },
+  qfex: { fees24h: FEE_UNSOURCED, fees7d: FEE_UNSOURCED, oiToDeposits: DEPOSIT_UNSOURCED.qfex },
+  variational: { oiToDeposits: DEPOSIT_UNSOURCED.variational },
+  "txflow-perps": { oiToDeposits: DEPOSIT_UNSOURCED["txflow-perps"] },
+  "ondo-perps": { fees24h: FEE_UNSOURCED, fees7d: FEE_UNSOURCED, oiToDeposits: DEPOSIT_UNSOURCED["ondo-perps"] }
 };
 function feesUnsourced(slug) {
   const cols = NO_SOURCE[slug] || [];
@@ -532,7 +562,7 @@ function settleDeposits(row, ex, ctx) {
     if (eth.value != null) { userDeposits = eth.value; tvl = eth.value; depositsSource = "tvl"; }
     else depositsReason = eth.reason;
   } else if (ex.depositsDisplay === "missing") {
-    depositsReason = "DefiLlama TVL 为空，官方存款接口需要登录";
+    depositsReason = DEPOSIT_UNSOURCED[ex.slug] || "没有可用的存款或 TVL";
   } else if (ctx.tvl != null) {
     userDeposits = ctx.tvl; depositsAt = observedAt; depositsSource = "tvl";
   }
@@ -670,7 +700,7 @@ function cgWindowSum(chart) {
   return pk.reduce((a, b) => a + b, 0);
 }
 // PopDEX 官方公开行情（无 key）。浏览器无 CORS，只能在这里取。
-// 24h = Σ turnover24h。7d 要满 168 根 1H K 线；上市不足 7 天则按已有小时合计并标近似。空窗和 null 字段都是缺失。
+// 24h = Σ turnover24h。7d 只要已收盘的 168 根连续 1H K 线，不含正在形成的那一根；上市不足 7 天则按已收盘小时合计并标近似。空窗和 null 字段都是缺失。
 async function popGet(path, signal) {
   const url = "https://api.popdex.xyz" + path;
   let last = "error";
@@ -788,7 +818,7 @@ async function popdexVols(signal, tickersP) {
 }
 function blankRows() {
   const win = feeSlice([], Date.now());
-  return CFG.exchanges.map(ex => ({ name: ex.name, slug: ex.slug, url: typeof ex.url === "string" && ex.url.startsWith("https://") ? ex.url : null, coingecko: ex.coingecko || null, oi: null, oiChange7d: null, oiBasis: null, oiBasisAt: null, oiSource: null, oiDayFallback: false, noSource: (NO_SOURCE[ex.slug] || []).slice(), volume24h: null, volume7d: null, volSource: null, fees24h: null, fees7d: null, feesAsOf: win.feesAsOf, fees7dFrom: win.fees7dFrom, fees7dTo: win.fees7dTo, feesDayFallback: false, feesDisplay: ex.feesDisplay || null, feeRatio: null, tvl: null, userDeposits: null, depositsAt: null, depositsSource: null, depositsReason: null, depositsDisplay: ex.depositsDisplay || null, oiToDeposits: null, token: Object.prototype.hasOwnProperty.call(ex, "token") ? ex.token : undefined, tokenNote: ex.tokenNote || null, verification: ex.verification || null, heatRatio: null, heatMedian: null, heatRelative: null, heatMetric: null, heatLabel: null }));
+  return CFG.exchanges.map(ex => ({ name: ex.name, slug: ex.slug, url: typeof ex.url === "string" && ex.url.startsWith("https://") ? ex.url : null, coingecko: ex.coingecko || null, oi: null, oiChange7d: null, oiBasis: null, oiBasisAt: null, oiSource: null, oiDayFallback: false, noSource: (NO_SOURCE[ex.slug] || []).slice(), noSourceReasons: Object.assign({}, NO_SOURCE_REASON[ex.slug] || {}), volume24h: null, volume7d: null, volSource: null, fees24h: null, fees7d: null, feesAsOf: win.feesAsOf, fees7dFrom: win.fees7dFrom, fees7dTo: win.fees7dTo, feesDayFallback: false, feesDisplay: ex.feesDisplay || null, feeRatio: null, tvl: null, userDeposits: null, depositsAt: null, depositsSource: null, depositsReason: null, depositsDisplay: ex.depositsDisplay || null, oiToDeposits: null, token: Object.prototype.hasOwnProperty.call(ex, "token") ? ex.token : undefined, tokenNote: ex.tokenNote || null, verification: ex.verification || null, heatRatio: null, heatMedian: null, heatRelative: null, heatMetric: null, heatLabel: null }));
 }
 function applyPop(rows, pv) {
   const pr = rows && rows.find(r => r.slug === "popdex");
@@ -877,6 +907,8 @@ handler.J = J;
 handler.REQ_MS = REQ_MS;
 handler.DEADLINE_MS = DEADLINE_MS;
 handler.NO_SOURCE = NO_SOURCE;
+handler.NO_SOURCE_REASON = NO_SOURCE_REASON;
+handler.DEPOSIT_UNSOURCED = DEPOSIT_UNSOURCED;
 handler.MIN_WINDOW_HOURS = MIN_WINDOW_HOURS;
 handler.LISTING_LOOKBACK_MS = LISTING_LOOKBACK_MS;
 handler.COINGECKO_MAX_AGE_MS = COINGECKO_MAX_AGE_MS;

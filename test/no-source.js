@@ -39,29 +39,40 @@ vm.createContext(sandbox);
 vm.runInContext(src.replace("if(SNAP)show(SNAP);else{load();setInterval(load,600000)}", ""), sandbox);
 const cell = (c, r) => vm.runInContext("cell(" + JSON.stringify(c) + "," + JSON.stringify(r) + ")", sandbox);
 const feeCell = (c, r) => vm.runInContext("feeCell(" + JSON.stringify(c) + "," + JSON.stringify(r) + ")", sandbox);
+function dashText(html) { return String(html).replace(/<[^>]*>/g, ""); }
+function dashTitle(html) { return (String(html).match(/title="([^"]*)"/) || [])[1] || ""; }
+function assertDash(html, reason, msg) {
+  assert.equal(dashText(html), "—", msg);
+  assert.equal(dashTitle(html), reason, msg);
+  assert.equal(dashText(html).includes(reason), false, msg);
+}
 
-assert.equal(cell(["oiChange7d", "OI 7日变化", "%"], { slug: "popdex", oiChange7d: null, noSource: ["oiChange7d"] }), "—");
-assert.equal(cell(["oiChange7d", "OI 7日变化", "%"], { slug: "entropy.io", oiChange7d: null, noSource: ["oiChange7d"] }), "—");
+assertDash(cell(["oiChange7d", "OI 7日变化", "%"], { slug: "popdex", oiChange7d: null, noSource: ["oiChange7d"], noSourceReasons: data.NO_SOURCE_REASON.popdex }), data.NO_SOURCE_REASON.popdex.oiChange7d);
+assertDash(cell(["oiChange7d", "OI 7日变化", "%"], { slug: "entropy.io", oiChange7d: null, noSource: ["oiChange7d"], noSourceReasons: data.NO_SOURCE_REASON["entropy.io"] }), data.NO_SOURCE_REASON["entropy.io"].oiChange7d);
 assert.equal(cell(["oiChange7d", "OI 7日变化", "%"], { slug: "popdex", oiChange7d: null }), "缺失");
 assert.equal(cell(["oiChange7d", "OI 7日变化", "%"], { slug: "nado", oiChange7d: null }), "缺失");
-assert.equal(feeCell(["fees24h"], { slug: "risex", fees24h: null, feesDisplay: "missing", noSource: ["fees24h", "fees7d"] }), "—");
-assert.equal(feeCell(["fees7d"], { slug: "qfex", fees7d: null, feesDisplay: "missing", noSource: ["fees24h", "fees7d"] }), "—");
+assertDash(feeCell(["fees24h"], { slug: "risex", fees24h: null, feesDisplay: "missing", noSource: ["fees24h", "fees7d"], noSourceReasons: data.NO_SOURCE_REASON.risex }), data.NO_SOURCE_REASON.risex.fees24h);
+assertDash(feeCell(["fees7d"], { slug: "qfex", fees7d: null, feesDisplay: "missing", noSource: ["fees24h", "fees7d"], noSourceReasons: data.NO_SOURCE_REASON.qfex }), data.NO_SOURCE_REASON.qfex.fees7d);
 assert.equal(feeCell(["fees24h"], { slug: "variational", fees24h: null, fees7d: null, feesDisplay: "na" }), "不适用");
 assert.equal(feeCell(["fees7d"], { slug: "variational", fees24h: null, fees7d: null, feesDisplay: "na" }), "不适用");
 assert.equal(cell(["fees24h", "昨日手续费", "$"], { slug: "variational", fees24h: null, fees7d: null, feesDisplay: "na" }), "不适用");
 assert.equal(cell(["fees7d", "7D 手续费", "$"], { slug: "variational", fees24h: null, fees7d: null, feesDisplay: "na" }), "不适用");
-assert.equal(feeCell(["fees24h"], { slug: "ondo-perps", fees24h: null, feesDisplay: "missing", noSource: ["fees24h", "fees7d", "oiToDeposits"] }), "—");
+assertDash(feeCell(["fees24h"], { slug: "ondo-perps", fees24h: null, feesDisplay: "missing", noSource: ["fees24h", "fees7d", "oiToDeposits"], noSourceReasons: data.NO_SOURCE_REASON["ondo-perps"] }), data.NO_SOURCE_REASON["ondo-perps"].fees24h);
 assert.equal(feeCell(["fees24h"], { slug: "hyperliquid", fees24h: null, feesDisplay: null, noSource: [] }), "缺失");
 assert.equal(feeCell(["fees24h"], { feesDisplay: "na", fees24h: null }), "不适用");
-assert.equal(cell(["oiToDeposits", "OI/存款", "x"], { slug: "ondo-perps", oiToDeposits: null, depositsDisplay: "missing", noSource: ["fees24h", "fees7d", "oiToDeposits"] }), "—");
+assertDash(cell(["oiToDeposits", "OI/存款", "x"], { slug: "ondo-perps", oiToDeposits: null, depositsDisplay: "missing", noSource: ["fees24h", "fees7d", "oiToDeposits"], noSourceReasons: data.NO_SOURCE_REASON["ondo-perps"] }), data.DEPOSIT_UNSOURCED["ondo-perps"]);
+assert.equal(data.DEPOSIT_UNSOURCED["ondo-perps"].includes("官方存款接口需要登录"), true);
 for (const slug of ["variational", "qfex", "txflow-perps"]) {
   const cols = data.NO_SOURCE[slug];
-  assert.equal(cell(["oiToDeposits", "OI/存款", "x"], { slug, oiToDeposits: null, depositsDisplay: "missing", noSource: cols }), "—", slug);
-  assert.equal(cell(["oiToDeposits", "OI/存款", "x"], { slug, oiToDeposits: 3, userDeposits: 1, depositsSource: "tvl", noSource: cols }), "—", slug);
+  const reasons = data.NO_SOURCE_REASON[slug];
+  assert.equal(data.DEPOSIT_UNSOURCED[slug].includes("需要登录"), false, slug);
+  assertDash(cell(["oiToDeposits", "OI/存款", "x"], { slug, oiToDeposits: null, depositsDisplay: "missing", noSource: cols, noSourceReasons: reasons }), reasons.oiToDeposits, slug);
+  assertDash(cell(["oiToDeposits", "OI/存款", "x"], { slug, oiToDeposits: 3, userDeposits: 1, depositsSource: "tvl", noSource: cols, noSourceReasons: reasons }), reasons.oiToDeposits, slug);
 }
 assert.equal(cell(["oiToDeposits", "OI/存款", "x"], { slug: "nado", oiToDeposits: null, userDeposits: null, depositsSource: null }).includes("缺失"), true);
-assert.equal(cell(["fees24h", "昨日手续费", "$"], { slug: "risex", fees24h: 10, noSource: ["fees24h", "fees7d"] }), "—");
+assertDash(cell(["fees24h", "昨日手续费", "$"], { slug: "risex", fees24h: 10, noSource: ["fees24h", "fees7d"], noSourceReasons: data.NO_SOURCE_REASON.risex }), data.NO_SOURCE_REASON.risex.fees24h);
 assert.equal(cell(["oi", "持仓量OI", "$"], { slug: "popdex", oi: null, noSource: ["oiChange7d"] }).includes("缺失"), true);
+assertDash(cell(["oiChange7d", "OI 7日变化", "%"], { slug: "popdex", oiChange7d: null, noSource: ["oiChange7d"] }), "没有公开数据来源");
 
 const now = Date.UTC(2026, 9, 16, 12, 0, 0);
 vm.runInContext("globalThis.sample=" + JSON.stringify({
@@ -76,13 +87,13 @@ assert.equal(sample.oiChange7d, null);
 assert.equal(sample.fees24h, null);
 assert.deepEqual(sample.noSource, ["oiChange7d"]);
 assert.equal(cell(["oi", "OI", "$"], sample), "缺失");
-assert.equal(cell(["oiChange7d", "OI 7日变化", "%"], sample), "—");
+assertDash(cell(["oiChange7d", "OI 7日变化", "%"], sample), "没有公开数据来源");
 assert.equal(cell(["volume24h", "24H", "$"], sample), "缺失");
 assert.equal(feeCell(["fees24h"], sample), "缺失");
 
-const agedFee = { slug: "risex", fees24h: null, fees7d: null, feesDisplay: "missing", noSource: ["fees24h", "fees7d"], agedOut: true };
-assert.equal(feeCell(["fees24h"], agedFee), "—");
-assert.equal(feeCell(["fees7d"], agedFee), "—");
+const agedFee = { slug: "risex", fees24h: null, fees7d: null, feesDisplay: "missing", noSource: ["fees24h", "fees7d"], noSourceReasons: data.NO_SOURCE_REASON.risex, agedOut: true };
+assertDash(feeCell(["fees24h"], agedFee), data.NO_SOURCE_REASON.risex.fees24h);
+assertDash(feeCell(["fees7d"], agedFee), data.NO_SOURCE_REASON.risex.fees7d);
 
 const srcData = fs.readFileSync(path.join(__dirname, "..", "api/data.js"), "utf8");
 assert.equal(/volume\s*\*\s*.*rate|feeRate|makerFee/.test(srcData), false);
@@ -151,7 +162,17 @@ pending.then(res => {
     assert.ok(row.noSource.indexOf("oiToDeposits") >= 0, slug);
     assert.equal(row.oiToDeposits, null, slug);
     assert.equal(row.userDeposits, null, slug);
+    assert.equal(row.depositsReason, data.DEPOSIT_UNSOURCED[slug], slug);
+    assert.deepEqual(row.noSourceReasons, data.NO_SOURCE_REASON[slug], slug);
     assert.equal(urls.some(u => u.includes("/tvl/" + slug)), false, slug);
+  }
+  const ondoRow = payload.rows.find(r => r.slug === "ondo-perps");
+  assert.equal(ondoRow.depositsReason, data.DEPOSIT_UNSOURCED["ondo-perps"]);
+  assert.equal(ondoRow.depositsReason.includes("官方存款接口需要登录"), true);
+  for (const row of payload.rows) {
+    if (row.slug === "ondo-perps") continue;
+    assert.equal(String(row.depositsReason || "").includes("需要登录"), false, row.slug);
+    assert.equal(JSON.stringify(row.noSourceReasons || {}).includes("需要登录"), false, row.slug);
   }
   assert.equal(urls.some(u => u.includes("/tvl/txflow")), false);
   assert.equal(urls.some(u => /\/tvl\/txflow(?:\?|$)/.test(u)), false);
