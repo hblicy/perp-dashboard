@@ -239,13 +239,15 @@ pending.then(res => {
     assert.equal(ondoRow.fees24h, null);
     assert.equal(ondoRow.fees7d, null);
     const variRow = payload.rows.find(r => r.slug === "variational");
-    assert.deepEqual(variRow.noSource, ["oiToDeposits"]);
+    assert.deepEqual(variRow.noSource, []);
     assert.equal(variRow.feesDisplay, "na");
     assert.equal(variRow.fees24h, null);
     assert.equal(variRow.fees7d, null);
+    assert.equal(variRow.depositsDisplay, null);
     const txRow = payload.rows.find(r => r.slug === "txflow-perps");
-    assert.deepEqual(txRow.noSource, ["oiToDeposits"]);
-    for (const slug of ["variational", "qfex", "txflow-perps", "ondo-perps"]) {
+    assert.deepEqual(txRow.noSource, []);
+    assert.equal(txRow.depositsDisplay, null);
+    for (const slug of ["qfex", "ondo-perps"]) {
       const row = payload.rows.find(r => r.slug === slug);
       assert.equal(row.depositsDisplay, "missing", slug);
       assert.ok(row.noSource.indexOf("oiToDeposits") >= 0, slug);

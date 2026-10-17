@@ -10,18 +10,33 @@ assert.deepEqual(data.NO_SOURCE.popdex, ["oiChange7d"]);
 assert.deepEqual(data.NO_SOURCE["entropy.io"], ["oiChange7d"]);
 assert.deepEqual(data.NO_SOURCE.risex, ["fees24h", "fees7d"]);
 assert.deepEqual(data.NO_SOURCE.qfex, ["fees24h", "fees7d", "oiToDeposits"]);
-assert.deepEqual(data.NO_SOURCE.variational, ["oiToDeposits"]);
-assert.deepEqual(data.NO_SOURCE["txflow-perps"], ["oiToDeposits"]);
+assert.equal(data.NO_SOURCE.variational, undefined);
+assert.equal(data.NO_SOURCE["txflow-perps"], undefined);
 assert.deepEqual(data.NO_SOURCE["ondo-perps"], ["fees24h", "fees7d", "oiToDeposits"]);
 const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "config.json"), "utf8"));
-for (const slug of ["variational", "qfex", "txflow-perps", "ondo-perps"]) {
+for (const slug of ["qfex", "ondo-perps"]) {
   const ex = cfg.exchanges.find(e => e.slug === slug);
   assert.equal(ex.depositsDisplay, "missing", slug);
   assert.equal(ex.llamaSlug, undefined, slug);
 }
+assert.equal(cfg.exchanges.find(e => e.slug === "variational").depositsDisplay, undefined);
+assert.equal(cfg.exchanges.find(e => e.slug === "txflow-perps").depositsDisplay, undefined);
 assert.equal(cfg.exchanges.find(e => e.slug === "variational").feesDisplay, "na");
+assert.equal(cfg.exchanges.find(e => e.slug === "variational").llamaSlug, undefined);
 assert.equal(cfg.exchanges.find(e => e.slug === "txflow-perps").llamaSlug, undefined);
 assert.equal(JSON.stringify(cfg).includes("\"txflow\""), false);
+assert.equal(data.VARIATIONAL_STATS, "https://api.variational.io/metadata/v2/stats");
+assert.equal(data.variationalTvl({ tvl: "239450611.73" }), 239450611.73);
+assert.equal(data.variationalTvl({ tvl: 239450611.73 }), 239450611.73);
+assert.equal(data.variationalTvl({ tvl: "0" }), null);
+assert.equal(data.variationalTvl({ tvl: 0 }), null);
+assert.equal(data.variationalTvl({ tvl: "" }), null);
+assert.equal(data.variationalTvl({}), null);
+assert.equal(data.variationalTvl(null), null);
+assert.equal(data.positiveAmount("31151599.83"), 31151599.83);
+assert.equal(data.positiveAmount(0), null);
+assert.equal(data.positiveAmount("0"), null);
+assert.equal(data.positiveAmount("nope"), null);
 assert.equal(fs.readFileSync(path.join(__dirname, "..", "api/data.js"), "utf8").includes("/tvl/"), true);
 assert.equal(data.NO_SOURCE.hyperliquid, undefined);
 assert.equal(data.NO_SOURCE.bulk, undefined);
@@ -61,19 +76,45 @@ assertDash(feeCell(["fees24h"], { slug: "ondo-perps", fees24h: null, feesDisplay
 assert.equal(feeCell(["fees24h"], { slug: "hyperliquid", fees24h: null, feesDisplay: null, noSource: [] }), "缺失");
 assert.equal(feeCell(["fees24h"], { feesDisplay: "na", fees24h: null }), "不适用");
 assertDash(cell(["oiToDeposits", "OI/存款", "x"], { slug: "ondo-perps", oiToDeposits: null, depositsDisplay: "missing", noSource: ["fees24h", "fees7d", "oiToDeposits"], noSourceReasons: data.NO_SOURCE_REASON["ondo-perps"] }), data.DEPOSIT_UNSOURCED["ondo-perps"]);
-assert.equal(data.DEPOSIT_UNSOURCED.variational.includes("OLP 金库"), true);
-assert.equal(data.DEPOSIT_UNSOURCED.variational.includes("只有行情"), false);
+assert.equal(data.DEPOSIT_UNSOURCED.variational, undefined);
+assert.equal(data.DEPOSIT_UNSOURCED["txflow-perps"], undefined);
 assert.equal(data.DEPOSIT_UNSOURCED.qfex.includes("只有本账户存款，没有全平台总额"), true);
 assert.equal(data.DEPOSIT_UNSOURCED.qfex.includes("需要登录"), false);
 assert.equal(data.DEPOSIT_UNSOURCED["ondo-perps"].includes("需要登录"), true);
 assert.equal(data.DEPOSIT_UNSOURCED["ondo-perps"].includes("只有账户自己的存款记录，没有全平台总额"), true);
-for (const slug of ["variational", "qfex", "txflow-perps"]) {
-  const cols = data.NO_SOURCE[slug];
-  const reasons = data.NO_SOURCE_REASON[slug];
-  assert.equal(data.DEPOSIT_UNSOURCED[slug].includes("需要登录"), false, slug);
-  assertDash(cell(["oiToDeposits", "OI/存款", "x"], { slug, oiToDeposits: null, depositsDisplay: "missing", noSource: cols, noSourceReasons: reasons }), reasons.oiToDeposits, slug);
-  assertDash(cell(["oiToDeposits", "OI/存款", "x"], { slug, oiToDeposits: 3, userDeposits: 1, depositsSource: "tvl", noSource: cols, noSourceReasons: reasons }), reasons.oiToDeposits, slug);
-}
+assertDash(cell(["oiToDeposits", "OI/存款", "x"], { slug: "qfex", oiToDeposits: null, depositsDisplay: "missing", noSource: data.NO_SOURCE.qfex, noSourceReasons: data.NO_SOURCE_REASON.qfex }), data.NO_SOURCE_REASON.qfex.oiToDeposits, "qfex");
+assertDash(cell(["oiToDeposits", "OI/存款", "x"], { slug: "qfex", oiToDeposits: 3, userDeposits: 1, depositsSource: "tvl", noSource: data.NO_SOURCE.qfex, noSourceReasons: data.NO_SOURCE_REASON.qfex }), data.NO_SOURCE_REASON.qfex.oiToDeposits, "qfex value ignored");
+function visible(html) { return String(html).replace(/\s+title="[^"]*"/g, "").replace(/<[^>]+>/g, ""); }
+const variCell = cell(["oiToDeposits", "OI/存款", "x"], { slug: "variational", depositsSource: "tvl-approx", oiToDeposits: 0.42, userDeposits: 239450611.73, oiBasis: 100626256.9266, oiBasisAt: "2026-10-16T00:00:00.000Z", depositsAt: "2026-10-17T02:00:00.000Z" });
+assert.equal(visible(variCell).includes("0.42x"), true);
+assert.equal(visible(variCell).includes("TVL近似"), true);
+assert.equal(visible(variCell).includes("—"), false);
+assert.equal(visible(variCell).includes("缺失"), false);
+assert.equal(/\d{4}-\d{2}-\d{2}/.test(visible(variCell)), false);
+assert.equal(dashTitle(variCell).includes("金库"), true);
+assert.equal(dashTitle(variCell).includes("结算池"), true);
+assert.equal(dashTitle(variCell).includes("OLP"), true);
+assert.equal(dashTitle(variCell).includes("仅交易者存款"), true);
+const txCell = cell(["oiToDeposits", "OI/存款", "x"], { slug: "txflow-perps", depositsSource: "tvl-approx", oiToDeposits: 1.25, userDeposits: 31151599.83, oiBasis: 38939499.7875 });
+assert.equal(visible(txCell).includes("1.25x"), true);
+assert.equal(visible(txCell).includes("TVL近似"), true);
+assert.equal(dashTitle(txCell).includes("金库"), true);
+assert.equal(dashTitle(txCell).includes("tvl/txflow"), true);
+assert.equal(dashTitle(txCell).includes("USDC"), true);
+assert.equal(dashTitle(txCell).includes("桥"), true);
+assert.equal(dashTitle(txCell).includes("仅交易者存款"), true);
+const variMiss = cell(["oiToDeposits", "OI/存款", "x"], { slug: "variational", oiToDeposits: null, userDeposits: null, tvl: null, depositsReason: "Variational 官方 TVL 取不到" });
+const txMiss = cell(["oiToDeposits", "OI/存款", "x"], { slug: "txflow-perps", oiToDeposits: null, userDeposits: null, tvl: null });
+assert.equal(visible(variMiss), "缺失");
+assert.equal(visible(txMiss), "缺失");
+assert.equal(variMiss.includes("$0"), false);
+assert.equal(txMiss.includes("$0"), false);
+assert.equal(variMiss.includes("0.00x"), false);
+assert.equal(txMiss.includes("0.00x"), false);
+const hlCell = cell(["oiToDeposits", "OI/存款", "x"], { slug: "hyperliquid", depositsSource: "tvl", oiToDeposits: 1.5, userDeposits: 1000, oiBasis: 1500 });
+assert.equal(visible(hlCell).includes("1.50x"), true);
+assert.equal(visible(hlCell).includes("TVL近似"), false);
+assert.equal(hlCell.includes(">TVL<"), true);
 assert.equal(cell(["oiToDeposits", "OI/存款", "x"], { slug: "nado", oiToDeposits: null, userDeposits: null, depositsSource: null }).includes("缺失"), true);
 assertDash(cell(["fees24h", "昨日手续费", "$"], { slug: "risex", fees24h: 10, noSource: ["fees24h", "fees7d"], noSourceReasons: data.NO_SOURCE_REASON.risex }), data.NO_SOURCE_REASON.risex.fees24h);
 assert.equal(cell(["oi", "持仓量OI", "$"], { slug: "popdex", oi: null, noSource: ["oiChange7d"] }).includes("缺失"), true);
@@ -139,13 +180,33 @@ function okJson(body, status = 200) {
   const text = typeof body === "string" ? body : JSON.stringify(body);
   return { ok: status >= 200 && status < 300, status, headers: { get() { return null; } }, text: async () => text };
 }
+const VAR_TVL = 239450611.73;
+const TX_TVL = 31151599.83;
+const OI = 100000000;
+function days(value) {
+  const today = Math.floor(Date.now() / 86400000) * 86400;
+  const pts = [];
+  for (let i = 1; i <= 16; i++) pts.push([today - i * 86400, value]);
+  return pts;
+}
 const urls = [];
 const origFetch = global.fetch;
-global.fetch = async (url) => {
+function route(url, mode) {
   urls.push(String(url));
   const u = String(url);
+  if (u === data.VARIATIONAL_STATS || u.includes("api.variational.io/metadata/v2/stats")) {
+    if (mode === "zero") return okJson({ tvl: "0" });
+    if (mode === "down") return okJson("missing", 404);
+    return okJson({ tvl: "239450611.73" });
+  }
+  if (/\/tvl\/txflow(?:\?|$)/.test(u)) {
+    if (mode === "zero") return okJson("0");
+    if (mode === "down") return okJson("missing", 404);
+    return okJson(String(TX_TVL));
+  }
   if (u.includes("/protocol/lighter")) return okJson({ currentChainTvls: { Ethereum: 10 } });
   if (u.includes("/protocol/popdex-bridge")) return okJson({ chainTvls: {} });
+  if (u.includes("/summary/open-interest/")) return okJson({ totalDataChart: days(OI) });
   if (u.includes("/summary/")) return okJson({ totalDataChart: [] });
   if (u.includes("/tvl/")) return okJson("1000");
   if (u.includes("perpsmania.com")) return okJson({});
@@ -153,15 +214,48 @@ global.fetch = async (url) => {
   if (u.includes("popdex")) return okJson({ code: "200", data: [], total: 0, limit: 100 });
   if (u.includes("coingecko.com")) return okJson([]);
   return okJson("missing", 404);
-};
-const pending = new Promise((resolve, reject) => {
-  const res = { statusCode: 0, headers: {}, setHeader() {}, end(body) { this.body = body; resolve(this); } };
-  Promise.resolve(data({}, res)).catch(reject);
-});
-pending.then(res => {
-  global.fetch = origFetch;
+}
+function callHandler() {
+  return new Promise((resolve, reject) => {
+    const res = { statusCode: 0, headers: {}, setHeader() {}, end(body) { this.body = body; resolve(this); } };
+    Promise.resolve(data({}, res)).catch(reject);
+  });
+}
+global.fetch = async (url) => route(url, "ok");
+callHandler().then(async res => {
   const payload = JSON.parse(res.body);
-  for (const slug of ["variational", "qfex", "txflow-perps"]) {
+  const vari = payload.rows.find(r => r.slug === "variational");
+  const tx = payload.rows.find(r => r.slug === "txflow-perps");
+  const hl = payload.rows.find(r => r.slug === "hyperliquid");
+  assert.deepEqual(vari.noSource, []);
+  assert.deepEqual(tx.noSource, []);
+  assert.equal(vari.depositsDisplay, null);
+  assert.equal(tx.depositsDisplay, null);
+  assert.equal(vari.depositsSource, "tvl-approx");
+  assert.equal(tx.depositsSource, "tvl-approx");
+  assert.equal(vari.userDeposits, VAR_TVL);
+  assert.equal(tx.userDeposits, TX_TVL);
+  assert.equal(vari.tvl, VAR_TVL);
+  assert.equal(tx.tvl, TX_TVL);
+  assert.equal(vari.oiToDeposits, OI / VAR_TVL);
+  assert.equal(tx.oiToDeposits, OI / TX_TVL);
+  assert.notEqual(vari.userDeposits, 0);
+  assert.notEqual(tx.userDeposits, 0);
+  const variHtml = cell(["oiToDeposits", "OI/存款", "x"], vari);
+  const txHtml = cell(["oiToDeposits", "OI/存款", "x"], tx);
+  assert.equal(visible(variHtml).includes(vari.oiToDeposits.toFixed(2) + "x"), true);
+  assert.equal(visible(variHtml).includes("TVL近似"), true);
+  assert.equal(dashTitle(variHtml).includes("金库"), true);
+  assert.equal(dashTitle(variHtml).includes("OLP"), true);
+  assert.equal(visible(txHtml).includes(tx.oiToDeposits.toFixed(2) + "x"), true);
+  assert.equal(visible(txHtml).includes("TVL近似"), true);
+  assert.equal(dashTitle(txHtml).includes("金库"), true);
+  assert.equal(dashTitle(txHtml).includes("tvl/txflow"), true);
+  assert.equal(hl.depositsSource, "tvl");
+  assert.equal(hl.userDeposits, 1000);
+  assert.equal(visible(cell(["oiToDeposits", "OI/存款", "x"], hl)).includes("TVL近似"), false);
+  assert.equal(cell(["oiToDeposits", "OI/存款", "x"], hl).includes(">TVL<"), true);
+  for (const slug of ["qfex", "ondo-perps"]) {
     const row = payload.rows.find(r => r.slug === slug);
     assert.equal(row.depositsDisplay, "missing", slug);
     assert.ok(row.noSource.indexOf("oiToDeposits") >= 0, slug);
@@ -169,6 +263,7 @@ pending.then(res => {
     assert.equal(row.userDeposits, null, slug);
     assert.equal(row.depositsReason, data.DEPOSIT_UNSOURCED[slug], slug);
     assert.deepEqual(row.noSourceReasons, data.NO_SOURCE_REASON[slug], slug);
+    assertDash(cell(["oiToDeposits", "OI/存款", "x"], row), data.DEPOSIT_UNSOURCED[slug], slug);
     assert.equal(urls.some(u => u.includes("/tvl/" + slug)), false, slug);
   }
   const ondoRow = payload.rows.find(r => r.slug === "ondo-perps");
@@ -180,10 +275,41 @@ pending.then(res => {
     assert.equal(String(row.depositsReason || "").includes("需要登录"), false, row.slug);
     assert.equal(JSON.stringify(row.noSourceReasons || {}).includes("需要登录"), false, row.slug);
   }
-  assert.equal(urls.some(u => u.includes("/tvl/txflow")), false);
-  assert.equal(urls.some(u => /\/tvl\/txflow(?:\?|$)/.test(u)), false);
+  assert.equal(urls.some(u => u.includes(data.VARIATIONAL_STATS)), true);
+  assert.equal(urls.some(u => /\/tvl\/txflow(?:\?|$)/.test(u)), true);
+  assert.equal(urls.some(u => u.includes("/tvl/txflow-perps")), false);
+  assert.equal(urls.some(u => u.includes("/tvl/variational")), false);
   assert.equal(urls.some(u => u.includes("/tvl/hyperliquid")), true);
   assert.equal(urls.some(u => u.includes("/tvl/nado")), true);
+  assert.equal(vari.feesDisplay, "na");
+  urls.length = 0;
+  global.fetch = async (url) => route(url, "zero");
+  const failed = JSON.parse((await callHandler()).body);
+  for (const slug of ["variational", "txflow-perps"]) {
+    const row = failed.rows.find(r => r.slug === slug);
+    assert.equal(row.userDeposits, null, slug);
+    assert.equal(row.tvl, null, slug);
+    assert.equal(row.oiToDeposits, null, slug);
+    assert.notEqual(row.userDeposits, 0, slug);
+    assert.equal(row.noSource.indexOf("oiToDeposits"), -1, slug);
+    const html = cell(["oiToDeposits", "OI/存款", "x"], row);
+    assert.equal(visible(html), "缺失", slug);
+    assert.equal(html.includes("$0"), false, slug);
+    assert.equal(html.includes("0.00x"), false, slug);
+    assert.equal(dashTitle(html).includes("金库"), true, slug);
+  }
+  urls.length = 0;
+  global.fetch = async (url) => route(url, "down");
+  const down = JSON.parse((await callHandler()).body);
+  for (const slug of ["variational", "txflow-perps"]) {
+    const row = down.rows.find(r => r.slug === slug);
+    assert.equal(row.userDeposits, null, slug);
+    assert.equal(row.oiToDeposits, null, slug);
+    assert.equal(visible(cell(["oiToDeposits", "OI/存款", "x"], row)), "缺失", slug);
+  }
+  assert.equal(urls.some(u => u.includes(data.VARIATIONAL_STATS)), true);
+  assert.equal(urls.some(u => /\/tvl\/txflow(?:\?|$)/.test(u)), true);
+  global.fetch = origFetch;
   console.log("no-source cases ok");
 }).catch(err => {
   global.fetch = origFetch;
