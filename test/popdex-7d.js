@@ -1,5 +1,6 @@
 // PopDEX 7D asks for 180 hourly candles. Candles older than the 168h window are not summed and do not reject the symbol.
-// Fewer than 168 candles inside the window stays missing for an established symbol. Run: node test/popdex-7d.js
+// An established symbol still needs 168 contiguous in-window hours. One missing hour inside that window is null,
+// and 167 candles is null. The ≥160 approximate threshold is TxFlow/Entropy only. Run: node test/popdex-7d.js
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
@@ -50,3 +51,28 @@ for (let i = 0; i < 180; i++) {
 assert.ok(shortIn > 0 && shortIn < 168);
 const listedLongAgo = now - 30 * 86400000;
 assert.equal(data.sumQuoteWindow(short, start, now, listedLongAgo), null);
+
+// (a) 180 candles fetched, exactly one interior hour of the 168h window absent.
+// The replacement candle is older than the window, so the fetch length stays 180
+// and that older candle must not fill the hole. 168 in-window points with a gap is still null.
+const missingAt = now - 10 * hour;
+assert.ok(missingAt > start && missingAt < now);
+const gapped = [];
+for (let i = 0; i < 180; i++) {
+  const t = now - i * hour;
+  if (t === missingAt) continue;
+  gapped.push(candle(t, 3));
+}
+gapped.push(candle(now - 180 * hour, 1000000));
+assert.equal(gapped.length, 180);
+const gapIn = gapped.filter(c => c[0] >= start && c[0] <= now);
+assert.equal(gapIn.length, 168);
+assert.equal(gapIn.some(c => c[0] === missingAt), false);
+assert.equal(gapped.some(c => c[0] < start), true);
+assert.equal(data.sumQuoteWindow(gapped, start, now, listedLongAgo), null);
+
+// (b) exactly 167 candles. Above the TxFlow/Entropy floor of 160, still null for PopDEX.
+const oneSixtySeven = [];
+for (let i = 0; i < 167; i++) oneSixtySeven.push(candle(now - i * hour, 5));
+assert.equal(oneSixtySeven.length, 167);
+assert.equal(data.sumQuoteWindow(oneSixtySeven, start, now, listedLongAgo), null);
