@@ -224,11 +224,24 @@ pending.then(res => {
     assert.deepEqual(ent.noSource, ["oiChange7d"]);
     assert.deepEqual(bulk.noSource, []);
     assert.equal(bulk.oiDayFallback, false);
-    for (const slug of ["risex", "qfex", "ondo-perps", "variational"]) {
+    for (const slug of ["risex", "qfex"]) {
       const row = payload.rows.find(r => r.slug === slug);
       assert.deepEqual(row.noSource, ["fees24h", "fees7d"], slug);
       assert.equal(row.fees24h, null, slug);
       assert.equal(row.fees7d, null, slug);
+    }
+    const ondoRow = payload.rows.find(r => r.slug === "ondo-perps");
+    assert.deepEqual(ondoRow.noSource, ["fees24h", "fees7d", "oiToDeposits"]);
+    assert.equal(ondoRow.fees24h, null);
+    assert.equal(ondoRow.fees7d, null);
+    const variRow = payload.rows.find(r => r.slug === "variational");
+    assert.deepEqual(variRow.noSource, []);
+    assert.equal(variRow.feesDisplay, "na");
+    assert.equal(variRow.fees24h, null);
+    assert.equal(variRow.fees7d, null);
+    for (const slug of ["variational", "qfex", "txflow-perps"]) {
+      const row = payload.rows.find(r => r.slug === slug);
+      assert.equal((row.noSource || []).indexOf("oiToDeposits"), -1, slug);
     }
     assert.equal(payload.rows.length, CFG.exchanges.length);
     console.log("oi-snapshot cases ok tookMs=" + payload.tookMs + " elapsed=" + (Date.now() - started));

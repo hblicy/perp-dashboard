@@ -141,7 +141,7 @@ async function info(body, signal, opt) {
   }
   throw new Error(last);
 }
-const { rawNum, FULL_WINDOW_HOURS, MIN_WINDOW_HOURS } = require("./num");
+const { rawNum, MIN_WINDOW_HOURS, LISTING_LOOKBACK_MS } = require("./num");
 function notional(candles, start7, now) {
   // An empty candle set is missing data. Do not sum it into a $0 total.
   if (!Array.isArray(candles) || candles.length === 0) return null;
@@ -150,12 +150,14 @@ function notional(candles, start7, now) {
   // The candle that contains now-24h is only partly inside the window. Weight it by that fraction.
   const earliest = start - (start % hour);
   const weight = (earliest + hour - start) / hour;
-  let d7 = 0, d24 = 0, n = 0, first = null, last = null;
+  let d7 = 0, d24 = 0, n = 0, first = null, last = null, prior = false;
   const seen = new Set();
   for (const c of candles) {
     if (!c || typeof c !== "object") return null;
     const t = rawNum(c.t);
-    if (t == null || t < start7 || t > now) continue;
+    if (t == null || t > now) continue;
+    // A timestamp before the window is evidence the coin already traded. It is not summed.
+    if (t < start7) { prior = true; continue; }
     const o = rawNum(c.o), h = rawNum(c.h), l = rawNum(c.l), cl = rawNum(c.c), v = rawNum(c.v);
     if (o == null || h == null || l == null || cl == null || v == null || v < 0) return null;
     if (seen.has(t)) continue;
@@ -169,11 +171,13 @@ function notional(candles, start7, now) {
     else if (t >= start && t <= now) d24 += notion;
   }
   if (n === 0 || first == null) return null;
-  // A contiguous series that starts inside the window is a listing younger than 7 days.
+  // New listing only with positive evidence: the extended fetch contained no candle before the window,
+  // and the in-window series is contiguous and starts after the window opens.
   const span = Math.round((last - first) / hour) + 1;
-  const young = first > start7 + hour && span === n;
+  const young = !prior && first > start7 + hour && span === n;
   if (!young && n < MIN_WINDOW_HOURS) return null;
-  return { d7, d24, hours: n, approx: young || n < FULL_WINDOW_HOURS };
+  // Candle notional is an estimate (about 2–8% under dayNtlVlm), including a full 168 hours.
+  return { d7, d24, hours: n, approx: true };
 }
 async function runLimited(jobs, signal) {
   const out = new Array(jobs.length);
@@ -279,11 +283,11 @@ async function load(signal, mark, timing, mode) {
   const rows = await loadMeta(signal, mark, timing);
   const coins = rows.map(u => u.name);
   if (mode === "7d") {
-    const now = Date.now(), start7 = now - 168 * 3600 * 1000;
+    const now = Date.now(), start7 = now - 168 * 3600 * 1000, fetchStart = start7 - LISTING_LOOKBACK_MS;
     mark("candles", coins.length);
     timing.begin("candles");
     const candleJobs = coins.map(coin => async () => {
-      const candles = await info({ type: "candleSnapshot", req: { coin, interval: "1h", startTime: start7, endTime: now } }, signal, { timing, kind: "candles" });
+      const candles = await info({ type: "candleSnapshot", req: { coin, interval: "1h", startTime: fetchStart, endTime: now } }, signal, { timing, kind: "candles" });
       const v = notional(candles, start7, now);
       if (v == null) throw new Error("bad candles");
       mark("candles", coins.length, "candle");
@@ -402,4 +406,5 @@ const handler = serve("24h");
 handler.handler7 = serve("7d");
 handler.notional = notional;
 handler.MIN_WINDOW_HOURS = MIN_WINDOW_HOURS;
+handler.LISTING_LOOKBACK_MS = LISTING_LOOKBACK_MS;
 module.exports = handler;

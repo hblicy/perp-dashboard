@@ -1,7 +1,7 @@
 // Vercel 无服务器函数：汇总 DefiLlama + CoinGecko。正常响应 s-maxage=600 + stale-while-revalidate=3600，最长约 70 分钟。
 const { setMaxListeners } = require("events");
 const CFG = require("../config.json");
-const { rawNum, FULL_WINDOW_HOURS, MIN_WINDOW_HOURS } = require("./num");
+const { rawNum, FULL_WINDOW_HOURS, MIN_WINDOW_HOURS, LISTING_LOOKBACK_MS } = require("./num");
 const L = "https://api.llama.fi", G = "https://api.coingecko.com/api/v3";
 const N = x => (typeof x === "number" && isFinite(x) ? x : null);
 function utcDay(ts) {
@@ -470,8 +470,10 @@ const NO_SOURCE = {
   "entropy.io": ["oiChange7d"],
   risex: ["fees24h", "fees7d"],
   qfex: ["fees24h", "fees7d"],
-  "ondo-perps": ["fees24h", "fees7d"],
-  variational: ["fees24h", "fees7d"]
+  // Ondo config sets depositsDisplay "missing" (no deposit feed). Variational fees stay off this map:
+  // feesDisplay "na" is zero fees, rendered 不适用. Variational, QFEX, and TxFlow still request
+  // DefiLlama /tvl/{slug}, so a null OI/存款 stays 缺失.
+  "ondo-perps": ["fees24h", "fees7d", "oiToDeposits"]
 };
 function feesUnsourced(slug) {
   const cols = NO_SOURCE[slug] || [];
@@ -814,6 +816,7 @@ async function handler(req, res) {
       ? "public, max-age=0, s-maxage=60"
       : "public, max-age=0, s-maxage=600, stale-while-revalidate=3600");
     payload.minWindowHours = MIN_WINDOW_HOURS;
+    payload.listingLookbackMs = LISTING_LOOKBACK_MS;
     res.end(JSON.stringify(payload));
   };
   hard = setTimeout(() => {
@@ -874,6 +877,7 @@ handler.REQ_MS = REQ_MS;
 handler.DEADLINE_MS = DEADLINE_MS;
 handler.NO_SOURCE = NO_SOURCE;
 handler.MIN_WINDOW_HOURS = MIN_WINDOW_HOURS;
+handler.LISTING_LOOKBACK_MS = LISTING_LOOKBACK_MS;
 handler.COINGECKO_MAX_AGE_MS = COINGECKO_MAX_AGE_MS;
 handler.resetCgCache = resetCgCache;
 handler.cgRemember = cgRemember;

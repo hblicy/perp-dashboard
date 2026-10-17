@@ -188,11 +188,6 @@ assert.equal(weekOk.volume7dApprox, true);
 assert.equal(weekOk.tx7, "ready");
 const weekCell = ui.cell(["volume7d", "7D 交易量", "$"], weekOk);
 assert.equal(weekCell.includes("近似"), true);
-const exactWeek = { slug: "txflow-perps", volume7d: null };
-age.takeTx7(exactWeek, { fetchedAt: weekEdge, volume7d: 888, candle24h: 10, volume7dApprox: false }, now);
-assert.equal(exactWeek.volume7d, 888);
-assert.equal(exactWeek.volume7dApprox, undefined);
-assert.equal(ui.cell(["volume7d", "7D 交易量", "$"], exactWeek).includes("近似"), false);
 assert.equal(weekCell.includes("CoinGecko"), false);
 
 const cgStart = html.indexOf("const CGID0=");

@@ -8,9 +8,21 @@ const data = require("../api/data.js");
 
 assert.deepEqual(data.NO_SOURCE.popdex, ["oiChange7d"]);
 assert.deepEqual(data.NO_SOURCE["entropy.io"], ["oiChange7d"]);
-for (const slug of ["risex", "qfex", "ondo-perps", "variational"]) {
+for (const slug of ["risex", "qfex"]) {
   assert.deepEqual(data.NO_SOURCE[slug], ["fees24h", "fees7d"], slug);
 }
+assert.deepEqual(data.NO_SOURCE["ondo-perps"], ["fees24h", "fees7d", "oiToDeposits"]);
+assert.equal(data.NO_SOURCE.variational, undefined);
+assert.equal(data.NO_SOURCE["txflow-perps"], undefined);
+const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "config.json"), "utf8"));
+for (const slug of ["variational", "qfex", "txflow-perps"]) {
+  const ex = cfg.exchanges.find(e => e.slug === slug);
+  assert.equal(ex.depositsDisplay, undefined, slug);
+  assert.equal(ex.llamaSlug, undefined, slug);
+}
+assert.equal(cfg.exchanges.find(e => e.slug === "ondo-perps").depositsDisplay, "missing");
+assert.equal(cfg.exchanges.find(e => e.slug === "variational").feesDisplay, "na");
+assert.equal(fs.readFileSync(path.join(__dirname, "..", "api/data.js"), "utf8").includes("/tvl/"), true);
 assert.equal(data.NO_SOURCE.hyperliquid, undefined);
 assert.equal(data.NO_SOURCE.bulk, undefined);
 
@@ -34,10 +46,19 @@ assert.equal(cell(["oiChange7d", "OI 7日变化", "%"], { slug: "popdex", oiChan
 assert.equal(cell(["oiChange7d", "OI 7日变化", "%"], { slug: "nado", oiChange7d: null }), "缺失");
 assert.equal(feeCell(["fees24h"], { slug: "risex", fees24h: null, feesDisplay: "missing", noSource: ["fees24h", "fees7d"] }), "—");
 assert.equal(feeCell(["fees7d"], { slug: "qfex", fees7d: null, feesDisplay: "missing", noSource: ["fees24h", "fees7d"] }), "—");
-assert.equal(feeCell(["fees24h"], { slug: "variational", fees24h: null, feesDisplay: "na", noSource: ["fees24h", "fees7d"] }), "—");
-assert.equal(feeCell(["fees24h"], { slug: "ondo-perps", fees24h: null, feesDisplay: "missing", noSource: ["fees24h", "fees7d"] }), "—");
+assert.equal(feeCell(["fees24h"], { slug: "variational", fees24h: null, fees7d: null, feesDisplay: "na" }), "不适用");
+assert.equal(feeCell(["fees7d"], { slug: "variational", fees24h: null, fees7d: null, feesDisplay: "na" }), "不适用");
+assert.equal(cell(["fees24h", "昨日手续费", "$"], { slug: "variational", fees24h: null, fees7d: null, feesDisplay: "na" }), "不适用");
+assert.equal(cell(["fees7d", "7D 手续费", "$"], { slug: "variational", fees24h: null, fees7d: null, feesDisplay: "na" }), "不适用");
+assert.equal(feeCell(["fees24h"], { slug: "ondo-perps", fees24h: null, feesDisplay: "missing", noSource: ["fees24h", "fees7d", "oiToDeposits"] }), "—");
 assert.equal(feeCell(["fees24h"], { slug: "hyperliquid", fees24h: null, feesDisplay: null, noSource: [] }), "缺失");
 assert.equal(feeCell(["fees24h"], { feesDisplay: "na", fees24h: null }), "不适用");
+assert.equal(cell(["oiToDeposits", "OI/存款", "x"], { slug: "ondo-perps", oiToDeposits: null, depositsDisplay: "missing", noSource: ["fees24h", "fees7d", "oiToDeposits"] }), "—");
+for (const slug of ["variational", "qfex", "txflow-perps"]) {
+  const ratio = cell(["oiToDeposits", "OI/存款", "x"], { slug, oiToDeposits: null, userDeposits: null, depositsSource: null });
+  assert.equal(ratio.includes("缺失"), true, slug);
+  assert.notEqual(ratio, "—");
+}
 assert.equal(cell(["fees24h", "昨日手续费", "$"], { slug: "risex", fees24h: 10, noSource: ["fees24h", "fees7d"] }), "—");
 assert.equal(cell(["oi", "持仓量OI", "$"], { slug: "popdex", oi: null, noSource: ["oiChange7d"] }).includes("缺失"), true);
 
