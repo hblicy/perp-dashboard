@@ -63,9 +63,11 @@ assert.equal(note.includes("未见独立代币"), false);
 assert.equal(note.includes("<a "), false);
 assert.equal(note.includes("https://"), false);
 
-const dep = api.depCell({ slug: "ondo-perps", depositsDisplay: "missing", depositsReason: "DefiLlama TVL 为空，官方存款接口需要登录", oiBasis: 94641560, oiToDeposits: 1.2, userDeposits: 5 });
+const dep = api.depCell({ slug: "ondo-perps", depositsDisplay: "missing", depositsReason: "DefiLlama 没有该协议 TVL；需要登录，只有账户自己的存款记录，没有全平台总额", oiBasis: 94641560, oiToDeposits: 1.2, userDeposits: 5 });
 assert.equal(dep.includes(">缺失<"), true);
-assert.equal(dep.includes("TVL 为空"), true);
+assert.equal(dep.includes("需要登录"), true);
+assert.equal(dep.includes("只有账户自己的存款记录，没有全平台总额"), true);
+assert.equal(dep.includes("TVL 为空"), false);
 assert.equal(dep.includes(">TVL<"), false);
 assert.equal(dep.includes("1.20x"), false);
 

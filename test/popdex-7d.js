@@ -1,6 +1,8 @@
-// PopDEX 7D asks for 180 hourly candles. Candles older than the 168h window are not summed and do not reject the symbol.
-// An established symbol still needs 168 contiguous in-window hours. One missing hour inside that window is null,
-// and 167 candles is null. The ≥160 approximate threshold is TxFlow/Entropy only. Run: node test/popdex-7d.js
+// PopDEX 7D asks for 180 hourly candles. The hour that still contains `now` is forming and is not summed.
+// Candles older than the 168 closed hours are not summed and do not reject the symbol.
+// An established symbol still needs 168 contiguous closed hours. One missing hour inside that window is null,
+// and 167 closed candles is null even if the forming hour is present. The ≥160 approximate threshold is TxFlow/Entropy only.
+// Run: node test/popdex-7d.js
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
@@ -32,12 +34,13 @@ for (let i = 0; i < 180; i++) {
 }
 assert.equal(fetched.length, 180);
 assert.ok(fetched.some(c => c[0] < start));
-assert.ok(inCount >= 168);
+assert.ok(inCount >= 169);
 const summed = data.sumQuoteWindow(fetched, start, now);
 assert.notEqual(summed, null);
 assert.equal(summed.approx, false);
-assert.equal(summed.count, inCount);
-assert.equal(summed.value, inSum);
+assert.equal(summed.count, 168);
+assert.equal(summed.count, inCount - 1);
+assert.equal(summed.value, inSum - 1);
 assert.notEqual(summed.value, fetched.reduce((s, c) => s + c[6], 0));
 
 const short = [];
@@ -76,3 +79,49 @@ const oneSixtySeven = [];
 for (let i = 0; i < 167; i++) oneSixtySeven.push(candle(now - i * hour, 5));
 assert.equal(oneSixtySeven.length, 167);
 assert.equal(data.sumQuoteWindow(oneSixtySeven, start, now, listedLongAgo), null);
+
+// 168 closed hours plus the still-open hour. The open hour's quote is not in the sum.
+const closedPlusForming = [];
+let closedOnly = 0;
+for (let i = 0; i < 169; i++) {
+  const quote = i === 0 ? 999999 : 4;
+  closedPlusForming.push(candle(now - i * hour, quote));
+  if (i !== 0) closedOnly += quote;
+}
+const plus = data.sumQuoteWindow(closedPlusForming, start, now, listedLongAgo);
+assert.equal(plus.approx, false);
+assert.equal(plus.count, 168);
+assert.equal(plus.value, closedOnly);
+assert.notEqual(plus.value, closedOnly + 999999);
+
+// 167 closed hours plus the forming hour. The open hour does not become the 168th.
+const almost = [];
+for (let i = 0; i < 168; i++) almost.push(candle(now - i * hour, 4));
+assert.equal(almost.length, 168);
+assert.equal(data.sumQuoteWindow(almost, start, now, listedLongAgo), null);
+
+// Young listing still sums the closed hours it has, and still marks approximate.
+const youngCandles = [];
+for (let i = 0; i < 10; i++) youngCandles.push(candle(now - i * hour, 8));
+const young = data.sumQuoteWindow(youngCandles, start, now, now - 2 * 86400000);
+assert.equal(young.approx, true);
+assert.equal(young.count, 9);
+assert.equal(young.value, 72);
+
+// PopDEX stamps candles on UTC hours. Mid-hour, the open hour is dropped and the
+// previous 168 closed hours are kept, including the hour that opens before now-168h.
+const clockNow = Math.floor(now / hour) * hour + 13 * 60000;
+const formingOpen = Math.floor(clockNow / hour) * hour;
+const clock = [];
+let clockSum = 0;
+for (let i = 0; i < 180; i++) {
+  const t = formingOpen - i * hour;
+  const quote = i === 0 ? 888888 : 6;
+  clock.push(candle(t, quote));
+  if (i >= 1 && i <= 168) clockSum += quote;
+}
+const clockSummed = data.sumQuoteWindow(clock, clockNow - 168 * hour, clockNow, listedLongAgo);
+assert.notEqual(clockSummed, null);
+assert.equal(clockSummed.approx, false);
+assert.equal(clockSummed.count, 168);
+assert.equal(clockSummed.value, clockSum);

@@ -94,6 +94,7 @@ for (const cells of rendered) {
 
 const bulk = byName.BULK;
 assert.equal(visibleText(bulk[cols.indexOf("oi")]), "$100");
+assert.equal(titles(bulk[cols.indexOf("oi")]).join("\n").includes("北京时间"), true);
 assert.equal(titles(bulk[cols.indexOf("oi")]).join("\n").includes("2026-10-15 08:00"), true);
 assert.equal(titles(bulk[cols.indexOf("oi")]).join("\n").includes("不是同一快照"), true);
 assert.equal(visibleText(bulk[cols.indexOf("fees24h")]).includes("2026-10-14"), false);
@@ -122,6 +123,7 @@ assert.equal(visibleText(ent[cols.indexOf("fees24h")]), "缺失");
 assert.equal(visibleText(ent[cols.indexOf("fees7d")]), "缺失");
 
 const tx = byName.TxFlow;
+assert.equal(titles(tx[cols.indexOf("oi")]).join("\n").includes("北京时间"), true);
 assert.equal(titles(tx[cols.indexOf("oi")]).join("\n").includes("2026-10-15 08:00"), true);
 assert.equal(DATE.test(visibleText(tx[cols.indexOf("oi")])), false);
 assert.equal(visibleText(tx[cols.indexOf("volume7d")]).includes("近似"), true);

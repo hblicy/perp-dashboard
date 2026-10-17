@@ -65,14 +65,16 @@ assert.equal(data.sumQuoteWindow(Array.from({ length: 10 }, (_, i) => [now - i *
 assert.equal(data.sumQuoteWindow([[now, 0, 0, 0, 0, 0, null]], start, now), null);
 const young = data.sumQuoteWindow(Array.from({ length: 48 }, (_, i) => [now - i * 3600e3, 0, 0, 0, 0, 0, 1000]), start, now, now - 2 * 86400000);
 assert.equal(young.approx, true);
-assert.equal(young.value, 48000);
+assert.equal(young.count, 47);
+assert.equal(young.value, 47000);
 const hour = 3600000;
 const full = [];
-for (let t = Math.ceil(start / hour) * hour; t <= now; t += hour) full.push([t, 0, 0, 0, 0, 0, 2]);
+const firstClock = Math.ceil(start / hour) * hour;
+for (let t = firstClock - hour; t <= now; t += hour) full.push([t, 0, 0, 0, 0, 0, 2]);
 const fullSum = data.sumQuoteWindow(full, start, now);
 assert.equal(fullSum.approx, false);
-assert.ok(fullSum.count >= 168);
-assert.equal(fullSum.value, fullSum.count * 2);
+assert.equal(fullSum.count, 168);
+assert.equal(fullSum.value, 168 * 2);
 
 const cg = [];
 for (let i = 167; i >= 0; i--) cg.push([now - i * 36e5, i % 24 === 0 ? null : "100"]);

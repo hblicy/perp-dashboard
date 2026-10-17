@@ -49,8 +49,15 @@ assert.equal(edge.hours, MIN_WINDOW_HOURS);
 assert.equal(edge.approx, true);
 
 assert.equal(tx.notional(candles(159), start7, now), null);
-assert.equal(tx.LISTING_LOOKBACK_MS, 48 * hour);
+assert.equal(tx.LISTING_LOOKBACK_MS, 168 * hour);
 assert.ok(tx.LISTING_LOOKBACK_MS >= 24 * hour);
+assert.equal(data.LISTING_LOOKBACK_MS, 168 * hour);
+assert.ok(start7 - 100 * hour >= start7 - tx.LISTING_LOOKBACK_MS);
+assert.ok(start7 - 100 * hour < start7 - 48 * hour);
+const priorFar = frontGap(9, 159).filter(c => !(c.t < start7 && c.t >= start7 - 48 * hour));
+priorFar.push(ohlc(start7 - 100 * hour));
+assert.equal(priorFar.some(c => c.t < start7), true);
+assert.equal(tx.notional(priorFar, start7, now), null);
 function ohlc(t) { return { t, o: "2", h: "4", l: "2", c: "2", v: "5" }; }
 function withPrior(start, rows) {
   const out = [];

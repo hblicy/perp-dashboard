@@ -14,7 +14,9 @@ const FULL_WINDOW_DAYS = 7;
 // exchange 7D total. PopDEX does not use this threshold.
 const MIN_WINDOW_HOURS = 160;
 // Same candle request, started this far before the 7D window (at least 24h).
-// A TxFlow/Entropy coin is a new listing only when that range has no candle
-// before the window. PopDEX uses listedAt and does not use this lookback.
-const LISTING_LOOKBACK_MS = 48 * 3600 * 1000;
+// 168h is one extra week on that same request: about 336 hourly candles
+// instead of about 216, still one request per coin. A TxFlow/Entropy coin is
+// a new listing only when that range has no candle before the window.
+// PopDEX uses listedAt and does not use this lookback.
+const LISTING_LOOKBACK_MS = 168 * 3600 * 1000;
 module.exports = { rawNum, FULL_WINDOW_HOURS, FULL_WINDOW_DAYS, MIN_WINDOW_HOURS, LISTING_LOOKBACK_MS };
