@@ -223,8 +223,13 @@ assert.equal(entTip.includes("OHLC"), true);
   const dated = [{ feesDisplay: null, feeRatio: fb.feeRatio, feesDayFallback: true, feesAsOf: fb.feesAsOf, volume24h: null, volume7d: null }, { feesDisplay: null, feeRatio: fb.feeRatio, feesDayFallback: true, feesAsOf: fb.feesAsOf, volume24h: null, volume7d: null }];
   data.applyHeat(dated);
   const datedCell = vm.runInContext("heatCell(" + JSON.stringify(dated[0]) + ")", page);
-  assert.equal(datedCell.includes(fb.feesAsOf), true);
-  assert.equal(datedCell.includes("降温") && !datedCell.includes(fb.feesAsOf), false);
+  const datedTitle = (datedCell.match(/title="([^"]*)"/) || [])[1] || "";
+  const datedText = datedCell.replace(/\s+title="[^"]*"/g, "").replace(/<[^>]+>/g, "");
+  assert.equal(datedText.includes("持平"), true);
+  assert.equal(datedTitle.includes(fb.feesAsOf), true);
+  assert.equal(datedText.includes(fb.feesAsOf), false);
+  assert.equal(datedText.includes("降温") && !datedTitle.includes(fb.feesAsOf), false);
+  assert.equal(/\d{4}-\d{2}-\d{2}/.test(datedText), false);
 
   function okJson(body, status = 200) {
     const text = typeof body === "string" ? body : JSON.stringify(body);

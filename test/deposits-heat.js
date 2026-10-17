@@ -198,10 +198,17 @@ const other = api.depCell({ slug: "bulk", depositsSource: "tvl", oiToDeposits: 2
 assert.equal(other.includes(">TVL<"), true);
 
 const dayCell = api.feeCell(["fees24h"], { fees24h: 10, feesDayFallback: true, feesAsOf: "2026-10-14" });
-assert.equal(dayCell.includes("2026-10-14"), true);
-assert.equal(dayCell.includes("最近完整 UTC 日"), true);
+const dayTitle = (dayCell.match(/title="([^"]*)"/) || [])[1] || "";
+const dayText = dayCell.replace(/\s+title="[^"]*"/g, "").replace(/<[^>]+>/g, "");
+assert.equal(dayTitle.includes("2026-10-14"), true);
+assert.equal(dayTitle.includes("最近完整 UTC 日"), true);
+assert.equal(dayText.includes("2026-10-14"), false);
+assert.equal(dayText.includes("$10"), true);
 const normalDay = api.feeCell(["fees24h"], { fees24h: 10, feesDayFallback: false, feesAsOf: "2026-10-15" });
-assert.equal(normalDay.includes(">2026-10-15<"), false);
+const normalTitle = (normalDay.match(/title="([^"]*)"/) || [])[1] || "";
+const normalText = normalDay.replace(/\s+title="[^"]*"/g, "").replace(/<[^>]+>/g, "");
+assert.equal(normalTitle.includes("2026-10-15"), true);
+assert.equal(normalText.includes("2026-10-15"), false);
 assert.equal(normalDay.includes("昨日 UTC 整日"), true);
 
 assertClean(html);
