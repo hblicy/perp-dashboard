@@ -48,7 +48,7 @@ const draftNotes = {
   "lighter-robinhood-perps": "LIT奖励池1100万，周积分未公布，周五分发",
   arcus: "S1阶段，周25万分，周四分发",
   popdex: "无积分计划",
-  nado: "S2阶段，周30万–95万分，分发日未公布",
+  nado: "S2阶段，周30万–95万分，周五分发",
   bulk: "S1阶段，周积分未公布，周六分发",
   risex: "S1阶段，周20万分，周二分发",
   variational: "阶段未公布，周15万分，周五分发",
@@ -56,7 +56,7 @@ const draftNotes = {
   "txflow-perps": "S1阶段，周125万分，周二分发",
   "entropy.io": "无积分计划",
   pacifica: "阶段未公布，周1000万分，周四分发",
-  "ondo-perps": "阶段未公布，周500万分，分发日未公布"
+  "ondo-perps": "阶段未公布，周500万分，周二分发"
 };
 for (const [slug, note] of Object.entries(draftNotes)) assert.equal(by(slug).note, note, slug);
 assert.equal(by("lighter-robinhood-perps").note, "LIT奖励池1100万，周积分未公布，周五分发");
@@ -71,6 +71,8 @@ assert.equal(risex.note.includes("呐"), false);
 assert.equal(risex.costPerPoint, undefined);
 
 assert.equal(by("bulk").note, "S1阶段，周积分未公布，周六分发");
+assert.equal(by("nado").note, "S2阶段，周30万–95万分，周五分发");
+assert.equal(by("ondo-perps").note, "阶段未公布，周500万分，周二分发");
 assert.equal(by("bulk").noteSources, undefined);
 assert.equal(cfg.exchanges.some(e => e.noteSources), false);
 assert.equal(by("bulk").fee.source, "https://docs.bulk.trade/bulk-exchange/fees");
