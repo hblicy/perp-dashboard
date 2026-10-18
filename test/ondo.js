@@ -11,7 +11,7 @@ const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 const ondo = cfg.exchanges.find(e => e.slug === "ondo-perps");
 assert.ok(ondo);
 assert.equal(cfg.exchanges.filter(e => e.slug === "ondo-perps").length, 1);
-assert.equal(cfg.exchanges.length, 14);
+assert.equal(cfg.exchanges.length, 13);
 assert.equal(ondo.name, "Ondo Perps");
 assert.equal(ondo.token, null);
 assert.equal(ondo.tokenNote, "无独立代币信息；ONDO 是 Ondo DAO 治理代币（Ondo Foundation 子公司 2022 年发售），也是 Ondo Perps 上的一个永续品种，不是 Ondo Perps 的代币；Ondo Perps 运营主体为 Ondo Global (Panama) Inc.；积分为 Ondo Points（兑换方式未公布）");
@@ -53,7 +53,7 @@ assert.equal(named.includes("<script"), false);
 const hype = api.nameCell({ name: "Hyperliquid", token: "HYPE" });
 assert.equal(hype.includes(">HYPE<"), true);
 assert.equal(hype.includes("缺失"), false);
-assert.equal(api.nameCell({ name: "Pacifica" }).includes("缺失"), false);
+assert.equal(api.nameCell({ name: "Arcus" }).includes("缺失"), false);
 
 const note = api.noteCell(ondo);
 assert.equal(note.includes("阶段未公布，周500万分，周二分发"), true);
