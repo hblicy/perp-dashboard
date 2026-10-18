@@ -55,7 +55,6 @@ const draftNotes = {
   qfex: "无积分计划",
   "txflow-perps": "S1阶段，周125万分，周二分发",
   "entropy.io": "无积分计划",
-  pacifica: "阶段未公布，周1000万分，周四分发",
   "ondo-perps": "阶段未公布，周500万分，周二分发"
 };
 for (const [slug, note] of Object.entries(draftNotes)) assert.equal(by(slug).note, note, slug);

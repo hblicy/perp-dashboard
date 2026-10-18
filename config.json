@@ -173,20 +173,6 @@
       }
     },
     {
-      "name": "Pacifica",
-      "slug": "pacifica",
-      "coingecko": "pacifica",
-      "perpsmania": "pacifica",
-      "note": "阶段未公布，周1000万分，周四分发",
-      "fee": {
-        "maker": "0.015%",
-        "taker": "0.040%",
-        "note": "Tier 1（30 天滚动量 $0）",
-        "source": "https://docs.pacifica.fi/trading-on-pacifica/trading-fees",
-        "asOf": "2026-10-14"
-      }
-    },
-    {
       "name": "Ondo Perps",
       "token": null,
       "tokenNote": "无独立代币信息；ONDO 是 Ondo DAO 治理代币（Ondo Foundation 子公司 2022 年发售），也是 Ondo Perps 上的一个永续品种，不是 Ondo Perps 的代币；Ondo Perps 运营主体为 Ondo Global (Panama) Inc.；积分为 Ondo Points（兑换方式未公布）",
